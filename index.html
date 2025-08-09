@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Petto – Simple Pet Simulator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="app-header">
+        <h1>Petto</h1>
+        <div class="pet-name-editor">
+          <label for="petName">Name</label>
+          <input id="petName" type="text" maxlength="20" placeholder="Your pet's name" />
+          <button id="saveNameBtn" class="btn">Rename</button>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="pet-stage card">
+          <div class="pet-visual">
+            <div id="petEmoji" class="pet-emoji" aria-label="pet">😺</div>
+            <div id="petMood" class="pet-mood">Chillin'</div>
+          </div>
+          <ul class="stats" aria-label="pet stats">
+            <li>
+              <span>Fullness</span>
+              <div class="bar"><div id="barFullness" class="fill"></div></div>
+              <span id="numFullness" class="num">0</span>
+            </li>
+            <li>
+              <span>Happiness</span>
+              <div class="bar"><div id="barHappiness" class="fill"></div></div>
+              <span id="numHappiness" class="num">0</span>
+            </li>
+            <li>
+              <span>Cleanliness</span>
+              <div class="bar"><div id="barCleanliness" class="fill"></div></div>
+              <span id="numCleanliness" class="num">0</span>
+            </li>
+            <li>
+              <span>Energy</span>
+              <div class="bar"><div id="barEnergy" class="fill"></div></div>
+              <span id="numEnergy" class="num">0</span>
+            </li>
+          </ul>
+        </section>
+
+        <section class="actions card">
+          <h2>Actions</h2>
+          <div class="action-buttons">
+            <button id="feedBtn" class="btn">Feed</button>
+            <button id="petBtn" class="btn">Pet</button>
+            <button id="groomBtn" class="btn">Groom</button>
+          </div>
+          <div class="play-row">
+            <label for="toySelect">Play with</label>
+            <select id="toySelect" class="select"></select>
+            <button id="playBtn" class="btn">Play</button>
+          </div>
+        </section>
+
+        <section class="log card">
+          <h2>Activity Log</h2>
+          <div id="logFeed" class="log-feed" aria-live="polite"></div>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <div class="footer-left">
+          <button id="saveBtn" class="btn subtle">Save</button>
+          <button id="resetBtn" class="btn danger">Reset</button>
+        </div>
+        <div class="footer-right">
+          <span id="tickInfo" class="muted">Tick: —</span>
+        </div>
+      </footer>
+    </div>
+
+    <script src="./script.js" type="module"></script>
+  </body>
+</html> 
