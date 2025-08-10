@@ -3,10 +3,50 @@ import { TRAITS, getTraitById } from './config/traits.js';
 import { ITEMS, getItemById } from './config/items.js';
 import { STATUS_THRESHOLDS, STATUS_LABELS } from './config/status.js';
 
+// Optional: bootstrap minimal store for future refactor
+import { createStore } from './src/store.js';
+import { rootReducer, ActionTypes } from './src/reducer.js';
+
+const USE_STORE = false; // temporarily disable until UI is fully migrated
+let store = null;
+// Store will be initialized after state is loaded below
+
 const STORAGE_KEY = 'demon-husbandry.save.v1';
 const LEGACY_STORAGE_KEYS = ['petto.save.v8'];
+const SAVE_VERSION = 2; // schema v2: no top-level stat mirrors; slot 0 is source of truth
 
 const clamp = (value, min = 0, max = 100) => Math.max(min, Math.min(max, value));
+
+// Helpers to access main pet safely
+function getMainPet(stateObj = null) {
+  const s = stateObj || state;
+  const p = s.pets?.[0];
+  if (p && p.type === 'pet') return p;
+  // Fallback stub if missing
+  return {
+    type: 'pet',
+    petTypeId: s.petTypeId || PETS[0].id,
+    traitIds: s.traitIds || [TRAITS[0].id],
+    name: s.name || 'Demon',
+    hunger: s.hunger ?? 50,
+    happiness: s.happiness ?? 70,
+    dirtiness: s.dirtiness ?? 30,
+    energy: s.energy ?? 70,
+    rage: s.rage ?? 0,
+    lifetimeHappinessGained: s.lifetimeHappinessGained || 0,
+  };
+}
+
+function setMainPet(mutator) {
+  if (!state.pets) state.pets = {};
+  if (!state.pets[0] || state.pets[0].type !== 'pet') {
+    const p = getMainPet();
+    state.pets[0] = { ...p };
+  }
+  state.pets[0] = mutator({ ...state.pets[0] });
+  // Mirror to legacy fields for current UI
+  syncMainFromSlot0();
+}
 
 const defaultState = (petTypeId = PETS[0].id, traitIds = [TRAITS[0].id]) => {
   const cfg = getPetById(petTypeId);
@@ -19,8 +59,8 @@ const defaultState = (petTypeId = PETS[0].id, traitIds = [TRAITS[0].id]) => {
       itemDurability[item.id] = {};
     }
   }
-  return {
-    // Main pet (slot 0)
+  const main = {
+    type: 'pet',
     petTypeId,
     traitIds,
     name: 'Demon',
@@ -29,29 +69,26 @@ const defaultState = (petTypeId = PETS[0].id, traitIds = [TRAITS[0].id]) => {
     dirtiness: 100 - s.cleanliness,
     energy: s.energy,
     rage: 0,
-    tick: 0,
     lifetimeHappinessGained: 0,
-    
+  };
+  return {
+    version: SAVE_VERSION,
+    activePetId: 0,
+    // Legacy mirrors (will be removed after full UI refactor)
+    petTypeId,
+    traitIds,
+    name: main.name,
+    hunger: main.hunger,
+    happiness: main.happiness,
+    dirtiness: main.dirtiness,
+    energy: main.energy,
+    rage: main.rage,
+    tick: 0,
+    lifetimeHappinessGained: main.lifetimeHappinessGained,
     // Multi-pet system
-    pets: {
-      0: { // Main pet slot
-        petTypeId,
-        traitIds,
-        name: 'Demon',
-        hunger: 100 - s.fullness,
-        happiness: s.happiness,
-        dirtiness: 100 - s.cleanliness,
-        energy: s.energy,
-        rage: 0,
-        lifetimeHappinessGained: 0,
-        type: 'pet'
-      }
-      // Slots 1-7 will be empty initially
-    },
-    
+    pets: { 0: main },
     // Incubation tracking
     incubatingEggs: {},
-    
     inventory,
     itemDurability,
     starterGranted: false,
@@ -60,10 +97,6 @@ const defaultState = (petTypeId = PETS[0].id, traitIds = [TRAITS[0].id]) => {
 
 let lastArtSrc = '';
 
-const HEART_BASE = 300;
-function heartsForTotal(total) { let hearts = 0; let cost = HEART_BASE; let remaining = total; while (remaining >= cost) { remaining -= cost; hearts += 1; cost *= 2; } return { hearts, progress: remaining / cost }; }
-function addHappinessGain(delta) { if (delta > 0) state.lifetimeHappinessGained += delta; }
-
 const toys = [
   { id: 'ball', label: 'Ball', happinessGain: 12, energyDelta: -10 },
   { id: 'laser', label: 'Laser Pointer', happinessGain: 16, energyDelta: -14 },
@@ -71,22 +104,51 @@ const toys = [
   { id: 'feather', label: 'Feather Wand', happinessGain: 14, energyDelta: -12 },
 ];
 
-const getMood = (s) => {
-  if (s.rage >= 80) return 'Furious';
-  if (s.hunger > 90 || s.dirtiness > 90) return 'Miserable';
-  if (s.energy < 10) return 'Exhausted';
-  if (s.happiness > 80 && s.hunger < 40 && s.dirtiness < 40) return 'Thriving';
-  if (s.happiness > 60) return 'Content';
-  if (s.hunger > 75) return 'Hungry';
-  if (s.dirtiness > 75) return 'Dirty';
-  if (s.energy < 25) return 'Tired';
-  return "Chillin'";
-};
-
-const emojiByType = { growler: '🐶', harpie: '🧚‍♀️' };
-const getEmoji = (s) => emojiByType[s.petTypeId] || '😺';
+// Migration to v2 single-source-of-truth
+function migrateStateV2(parsed) {
+  const migrated = { ...parsed };
+  // Ensure containers
+  migrated.pets = migrated.pets || {};
+  // Backfill hunger/dirtiness from legacy keys
+  if (migrated.fullness != null && migrated.hunger == null) { migrated.hunger = 100 - migrated.fullness; delete migrated.fullness; }
+  if (migrated.cleanliness != null && migrated.dirtiness == null) { migrated.dirtiness = 100 - migrated.cleanliness; delete migrated.cleanliness; }
+  // Ensure slot 0 exists and holds legacy mirrors
+  if (!migrated.pets[0] || migrated.pets[0].type !== 'pet') {
+    migrated.pets[0] = {
+      type: 'pet',
+      petTypeId: migrated.petTypeId || PETS[0].id,
+      traitIds: Array.isArray(migrated.traitIds) && migrated.traitIds.length ? migrated.traitIds : [TRAITS[0].id],
+      name: migrated.name || 'Demon',
+      hunger: migrated.hunger ?? 50,
+      happiness: migrated.happiness ?? 70,
+      dirtiness: migrated.dirtiness ?? 30,
+      energy: migrated.energy ?? 70,
+      rage: migrated.rage ?? 0,
+      lifetimeHappinessGained: migrated.lifetimeHappinessGained || 0,
+    };
+  }
+  // Normalize basics
+  migrated.activePetId = 0;
+  migrated.version = SAVE_VERSION;
+  return migrated;
+}
 
 let state = load() || defaultState();
+
+// Initialize store after state exists
+try {
+  if (USE_STORE) {
+    store = createStore(rootReducer, state);
+    store.subscribe(() => {
+      state = store.getState();
+      render();
+      save();
+    });
+  }
+} catch (_) {}
+
+// Force debug init in case previous render bailed
+initDebug();
 
 function load() {
   try {
@@ -111,7 +173,6 @@ function load() {
       : [TRAITS[0].id];
     const defaults = Object.fromEntries(ITEMS.map((i) => [i.id, i.defaultCount || 0]));
     const inventory = { ...defaults, ...(parsed.inventory || {}) };
-    
     // Initialize durability tracking for items that have durability
     const itemDurability = {};
     for (const item of ITEMS) {
@@ -119,15 +180,21 @@ function load() {
         itemDurability[item.id] = parsed.itemDurability?.[item.id] || {};
       }
     }
-    
-    const migrated = { ...parsed };
-    if (migrated.fullness != null && migrated.hunger == null) { migrated.hunger = 100 - migrated.fullness; delete migrated.fullness; }
-    if (migrated.cleanliness != null && migrated.dirtiness == null) { migrated.dirtiness = 100 - migrated.cleanliness; delete migrated.cleanliness; }
-    return { ...defaultState(petId, traitIds), ...migrated, petTypeId: petId, traitIds, inventory, itemDurability };
+    let base = { ...parsed, petTypeId: petId, traitIds, inventory, itemDurability };
+    // Legacy field migrations
+    if (base.fullness != null && base.hunger == null) { base.hunger = 100 - base.fullness; delete base.fullness; }
+    if (base.cleanliness != null && base.dirtiness == null) { base.dirtiness = 100 - base.cleanliness; delete base.cleanliness; }
+    // Schema migration
+    if (!base.version || base.version < SAVE_VERSION) {
+      base = migrateStateV2(base);
+    }
+    // Overlay on defaults to ensure new keys exist
+    const d = defaultState(petId, traitIds);
+    return { ...d, ...base };
   } catch (e) { return null; }
 }
 
-function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+function save() { state.version = SAVE_VERSION; localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 
 function resetAll() { state = defaultState(state.petTypeId, state.traitIds); localStorage.removeItem(STORAGE_KEY); for (const k of LEGACY_STORAGE_KEYS) try { localStorage.removeItem(k); } catch {} render(); }
 
@@ -163,106 +230,59 @@ const el = {
   inventoryGrid: $('#inventoryGrid'),
 };
 
-function activePetConfig() { return getPetById(state.petTypeId); }
-function activeTraits() { return (state.traitIds || []).map((id) => getTraitById(id)).filter(Boolean); }
-
-function maybeGrantStarterPack() {
-  try {
-    const counts = Object.values(state.inventory || {});
-    const total = counts.reduce((a, b) => a + (Number(b) || 0), 0);
-    if (total === 0 && !state.starterGranted) {
-      for (const it of ITEMS) state.inventory[it.id] = it.defaultCount || 1;
-      state.starterGranted = true; save();
-    }
-    // backfill any missing items added later
-    for (const it of ITEMS) if (state.inventory[it.id] == null) state.inventory[it.id] = it.defaultCount || 0;
-  } catch (_) {}
+function multFromTraits(key, petData = null) { 
+  // Use specific pet's traits or fall back to main pet
+  const targetPet = petData || state;
+  const traits = (targetPet.traitIds || []).map((id) => getTraitById(id)).filter(Boolean);
+  return traits.reduce((acc, t) => acc * (t?.modifiers?.[key] ?? 1), 1); 
 }
 
-function initDebug() {
-  const toggle = document.getElementById('debugToggle');
-  const panel = document.getElementById('debugPanel');
-  const itemSel = document.getElementById('debugItemSelect');
-  const qtyInp = document.getElementById('debugItemQty');
-  const addBtn = document.getElementById('debugAddBtn');
-  const add5Btn = document.getElementById('debugAdd5Btn');
-  const grantAllBtn = document.getElementById('debugGrantAllBtn');
-  if (!toggle || !panel) return;
-  if (itemSel && !itemSel.children.length) {
-    for (const it of ITEMS) { const opt = document.createElement('option'); opt.value = it.id; opt.textContent = `${it.emoji} ${it.label}`; itemSel.appendChild(opt); }
+function activeTraits(petData = null) { 
+  const targetPet = petData || state;
+  return (targetPet.traitIds || []).map((id) => getTraitById(id)).filter(Boolean); 
+}
+
+function activePetConfig(petData = null) { 
+  const targetPet = petData || state;
+  return getPetById(targetPet.petTypeId); 
+}
+
+function adjustRage(delta, petData = null) { 
+  const targetPet = petData || state;
+  if (petData) {
+    petData.rage = clamp((petData.rage || 0) + delta);
+  } else {
+    // Fallback for legacy paths (unused once fully migrated)
+    if (state.pets?.[0]) state.pets[0].rage = clamp((state.pets[0].rage || 0) + delta);
   }
-  toggle.onclick = () => panel.classList.toggle('hidden');
-  const addQty = (q) => { const id = itemSel?.value || ITEMS[0]?.id; if (!id) return; state.inventory[id] = (state.inventory[id] || 0) + q; save(); render(); };
-  addBtn && (addBtn.onclick = () => addQty(Math.max(1, Number(qtyInp?.value || 1))));
-  add5Btn && (add5Btn.onclick = () => addQty(5));
-  grantAllBtn && (grantAllBtn.onclick = () => { for (const it of ITEMS) state.inventory[it.id] = (state.inventory[it.id] || 0) + 5; save(); render(); });
 }
-
-// define init last
-function init() { initPetTypes(); initTraits(); initToys(); bindEvents(); maybeGrantStarterPack(); initDebug(); initRenameModal(); render(); startTicking(); }
-
-// guard init functions when controls are absent
-function initPetTypes() {
-  if (!el.petTypeSelect) return;
-  el.petTypeSelect.innerHTML = '';
-  for (const p of PETS) { const opt = document.createElement('option'); opt.value = p.id; opt.textContent = p.label; el.petTypeSelect.appendChild(opt); }
-  el.petTypeSelect.value = state.petTypeId;
-}
-
-function initTraits() {
-  if (!el.traitSelect) return;
-  el.traitSelect.innerHTML = '';
-  for (const t of TRAITS) { const opt = document.createElement('option'); opt.value = t.id; opt.textContent = t.label; opt.title = t.description; el.traitSelect.appendChild(opt); }
-  const set = new Set(state.traitIds || []);
-  for (const option of el.traitSelect.options) option.selected = set.has(option.value);
-}
-
-function initToys() { if (!el.toySelect) return; el.toySelect.innerHTML = ''; for (const t of toys) { const opt = document.createElement('option'); opt.value = t.id; opt.textContent = t.label; el.toySelect.appendChild(opt); } }
-
-function bindEvents() {
-  if (el.feedBtn) el.feedBtn.addEventListener('click', onFeed);
-  if (el.petBtn) el.petBtn.addEventListener('click', onPet);
-  if (el.groomBtn) el.groomBtn.addEventListener('click', onGroom);
-  if (el.playBtn) el.playBtn.addEventListener('click', onPlay);
-  el.saveBtn.addEventListener('click', save);
-  el.resetBtn.addEventListener('click', resetAll);
-  if (el.petTypeSelect) el.petTypeSelect.addEventListener('change', onChangePetType);
-  if (el.traitSelect) el.traitSelect.addEventListener('change', onChangeTraits);
-}
-
-function onChangePetType() { const nextId = el.petTypeSelect.value; if (!getPetById(nextId)) return; const keepName = state.name; const keepTraits = state.traitIds; const keepInv = state.inventory; state = defaultState(nextId, keepTraits); state.name = keepName; state.inventory = keepInv; render(); save(); }
-function onChangeTraits() { const selected = Array.from(el.traitSelect.selectedOptions).map((o) => o.value); const filtered = selected.filter((id) => getTraitById(id)).slice(0, 3); state.traitIds = filtered; save(); }
-// header rename removed; renaming is handled by modal in initRenameModal()
-
-function multFromTraits(key) { return activeTraits().reduce((acc, t) => acc * (t?.modifiers?.[key] ?? 1), 1); }
-
-function adjustRage(delta) { state.rage = clamp((state.rage || 0) + delta); }
 
 // Calculate damage chance for an item based on pet stats, type, and traits
-function calculateItemDamageChance(item) {
+function calculateItemDamageChance(item, targetPet = null) {
   if (!item.durability) return 0;
   
+  const pet = targetPet || state;
   const durability = item.durability;
   let damageChance = durability.baseDamageChance;
   
   console.log(`Calculating damage for ${item.label}: base=${durability.baseDamageChance}`);
   
   // Rage increases damage chance
-  if (state.rage > durability.rageThreshold) {
-    const excessRage = state.rage - durability.rageThreshold;
-    const petConfig = activePetConfig();
+  if ((pet.rage || 0) > durability.rageThreshold) {
+    const excessRage = (pet.rage || 0) - durability.rageThreshold;
+    const petConfig = activePetConfig(pet);
     const rageBonus = (petConfig.itemDamage?.rageBonus || 0.2) * (excessRage / 10);
     console.log(`Rage bonus: excess=${excessRage}, rageBonus=${rageBonus}`);
     damageChance += rageBonus;
   }
   
   // Pet type modifier
-  const petDamageMultiplier = activePetConfig().itemDamage?.damageMultiplier || 1;
+  const petDamageMultiplier = activePetConfig(pet).itemDamage?.damageMultiplier || 1;
   console.log(`Pet damage multiplier: ${petDamageMultiplier}`);
   damageChance *= petDamageMultiplier;
   
   // Trait modifiers
-  const traitDamageMultiplier = multFromTraits('itemDamageMultiplier');
+  const traitDamageMultiplier = multFromTraits('itemDamageMultiplier', pet);
   console.log(`Trait damage multiplier: ${traitDamageMultiplier}`);
   damageChance *= traitDamageMultiplier;
   
@@ -344,19 +364,120 @@ function damageItemInstance(itemId, instanceId) {
   return false; // Item damaged but not broken
 }
 
-function onFeed() { const before = { ...state }; const cfg = activePetConfig(); const fullnessGain = cfg.actions.feedFullnessGain * multFromTraits('feedFullnessGainMultiplier'); const energyGain = cfg.actions.feedEnergyGain; const happinessGain = cfg.actions.feedHappinessGain * multFromTraits('feedHappinessGainMultiplier'); state.hunger = clamp(state.hunger - fullnessGain); state.energy = clamp(state.energy + energyGain); state.happiness = clamp(state.happiness + happinessGain); addHappinessGain(Math.round(happinessGain)); adjustRage(-6); render(); startParticleEffects(); }
-function onPet() { const cfg = activePetConfig(); const petHappinessGain = cfg.actions.petHappinessGain * multFromTraits('petHappinessGainMultiplier'); state.happiness = clamp(state.happiness + petHappinessGain); addHappinessGain(Math.round(petHappinessGain)); adjustRage(-8); render(); startParticleEffects(); }
-function onGroom() { const cfg = activePetConfig(); const cleanGain = cfg.actions.groomCleanlinessGain * multFromTraits('groomCleanlinessGainMultiplier'); const happyBase = cfg.actions.groomHappinessGain; const happyGain = happyBase * multFromTraits('groomHappinessGainMultiplier'); const energyDelta = activeTraits().reduce((sum, t) => sum + (t?.modifiers?.groomEnergyDelta || 0), 0); state.cleanliness = clamp(state.cleanliness + cleanGain); state.happiness = clamp(state.happiness + happyGain); addHappinessGain(Math.round(Math.max(0, happyGain))); if (energyDelta !== 0) state.energy = clamp(state.energy + energyDelta); adjustRage(-5); render(); startParticleEffects(); }
-function onPlay() { const cfg = activePetConfig(); const toy = toys.find((t) => t.id === el.toySelect.value) || toys[0]; const energyMultiplier = cfg.actions.playEnergyMultiplier * multFromTraits('playEnergyMultiplier'); const happinessMultiplier = cfg.actions.playHappinessMultiplier * multFromTraits('playHappinessMultiplier'); const energyDelta = toy.energyDelta * energyMultiplier; if (state.energy + energyDelta < 0) return; const happyGain = toy.happinessGain * happinessMultiplier; state.happiness = clamp(state.happiness + happyGain); addHappinessGain(Math.round(happyGain)); state.energy = clamp(state.energy + energyDelta); state.cleanliness = clamp(state.cleanliness - cfg.actions.playCleanlinessCost); adjustRage(-8); render(); startParticleEffects(); }
+function syncMainFromSlot0() {
+  const p0 = state.pets?.[0];
+  if (!p0) return;
+  state.petTypeId = p0.petTypeId;
+  state.traitIds = p0.traitIds;
+  state.name = p0.name;
+  state.hunger = p0.hunger;
+  state.happiness = p0.happiness;
+  state.dirtiness = p0.dirtiness;
+  state.energy = p0.energy;
+  state.rage = p0.rage;
+  state.lifetimeHappinessGained = p0.lifetimeHappinessGained || 0;
+}
 
-function startTicking() { setInterval(() => { tick(); render(); }, 2000); setInterval(() => save(), 30000); }
+// Update header action handlers to target main pet (slot 0) and correct cleanliness mapping
+function onFeed() { 
+  const pet = state.pets?.[0]; if (!pet) return;
+  const cfg = activePetConfig(pet); 
+  const fullnessGain = cfg.actions.feedFullnessGain * multFromTraits('feedFullnessGainMultiplier', pet); 
+  const energyGain = cfg.actions.feedEnergyGain; 
+  const happinessGain = cfg.actions.feedHappinessGain * multFromTraits('feedHappinessGainMultiplier', pet); 
+  if (USE_STORE && store) {
+    store.dispatch({ type: ActionTypes.APPLY_DELTAS, payload: { slotId: 0, deltas: { hunger: -fullnessGain, energy: energyGain, happiness: happinessGain, rage: -6 } } });
+  } else {
+    pet.hunger = clamp((pet.hunger || 0) - fullnessGain); 
+    pet.energy = clamp((pet.energy || 0) + energyGain); 
+    pet.happiness = clamp((pet.happiness || 0) + happinessGain); 
+    if (happinessGain > 0) pet.lifetimeHappinessGained = (pet.lifetimeHappinessGained || 0) + Math.round(happinessGain);
+    adjustRage(-6, pet); 
+    syncMainFromSlot0(); render(); startParticleEffects(); 
+  }
+}
+function onPet() { 
+  const pet = state.pets?.[0]; if (!pet) return;
+  const cfg = activePetConfig(pet); 
+  const petHappinessGain = cfg.actions.petHappinessGain * multFromTraits('petHappinessGainMultiplier', pet); 
+  if (USE_STORE && store) {
+    store.dispatch({ type: ActionTypes.APPLY_DELTAS, payload: { slotId: 0, deltas: { happiness: petHappinessGain, rage: -8 } } });
+  } else {
+    pet.happiness = clamp((pet.happiness || 0) + petHappinessGain); 
+    if (petHappinessGain > 0) pet.lifetimeHappinessGained = (pet.lifetimeHappinessGained || 0) + Math.round(petHappinessGain);
+    adjustRage(-8, pet); 
+    syncMainFromSlot0(); render(); startParticleEffects(); 
+  }
+}
+function onGroom() { 
+  const pet = state.pets?.[0]; if (!pet) return;
+  const cfg = activePetConfig(pet); 
+  const cleanGain = cfg.actions.groomCleanlinessGain * multFromTraits('groomCleanlinessGainMultiplier', pet); 
+  const happyBase = cfg.actions.groomHappinessGain; 
+  const happyGain = happyBase * multFromTraits('groomHappinessGainMultiplier', pet); 
+  const energyDelta = activeTraits(pet).reduce((sum, t) => sum + (t?.modifiers?.groomEnergyDelta || 0), 0); 
+  if (USE_STORE && store) {
+    store.dispatch({ type: ActionTypes.APPLY_DELTAS, payload: { slotId: 0, deltas: { dirtiness: -cleanGain, happiness: happyGain, energy: energyDelta } } });
+  } else {
+    pet.dirtiness = clamp((pet.dirtiness || 0) - cleanGain); 
+    pet.happiness = clamp((pet.happiness || 0) + happyGain); 
+    if (happyGain > 0) pet.lifetimeHappinessGained = (pet.lifetimeHappinessGained || 0) + Math.round(Math.max(0, happyGain)); 
+    if (energyDelta !== 0) pet.energy = clamp((pet.energy || 0) + energyDelta); 
+    adjustRage(-5, pet); 
+    syncMainFromSlot0(); render(); startParticleEffects(); 
+  }
+}
+function onPlay() { 
+  const pet = state.pets?.[0]; if (!pet) return;
+  const cfg = activePetConfig(pet); 
+  const toy = toys.find((t) => t.id === el.toySelect?.value) || toys[0]; 
+  const energyMultiplier = cfg.actions.playEnergyMultiplier * multFromTraits('playEnergyMultiplier', pet); 
+  const happinessMultiplier = cfg.actions.playHappinessMultiplier * multFromTraits('playHappinessMultiplier', pet); 
+  const energyDelta = toy.energyDelta * energyMultiplier; 
+  if ((pet.energy || 0) + energyDelta < 0) return; 
+  const happyGain = toy.happinessGain * happinessMultiplier; 
+  if (USE_STORE && store) {
+    store.dispatch({ type: ActionTypes.APPLY_DELTAS, payload: { slotId: 0, deltas: { happiness: happyGain, energy: energyDelta, dirtiness: cfg.actions.playCleanlinessCost } } });
+  } else {
+    pet.happiness = clamp((pet.happiness || 0) + happyGain); 
+    if (happyGain > 0) pet.lifetimeHappinessGained = (pet.lifetimeHappinessGained || 0) + Math.round(happyGain); 
+    pet.energy = clamp((pet.energy || 0) + energyDelta); 
+    pet.dirtiness = clamp((pet.dirtiness || 0) + cfg.actions.playCleanlinessCost); 
+    adjustRage(-8, pet); 
+    syncMainFromSlot0(); render(); startParticleEffects(); 
+  }
+}
+
+// Replace startTicking to dispatch through store when available
+let __tickTimer = null;
+function startTicking() {
+  const step = () => {
+    try {
+      if (store) {
+        // store is disabled currently (USE_STORE=false)
+        store.dispatch({ type: ActionTypes.TICK, payload: { deltaMs: 2000 } });
+      } else {
+        tick();
+        render();
+      }
+    } catch (e) {
+      console.error('[DH] tick error', e);
+    }
+  };
+  if (__tickTimer) clearInterval(__tickTimer);
+  console.log('[DH] ticking start');
+  step(); // run once immediately
+  __tickTimer = setInterval(step, 2000);
+  setInterval(() => save(), 30000);
+}
 
 function setEmojiVisibility() { if (!el.petEmoji) return; const showImg = !!el.petImage && el.petImage.classList.contains('show'); el.petEmoji.style.display = showImg ? 'none' : 'block'; }
 function setPetArt() { 
-  const type = state.petTypeId; 
+  const main = getMainPet();
+  const type = main.petTypeId; 
   const src = `assets/pets/${type}_happy.png`; 
   if (!el.petImage) return; 
-  if (src === lastArtSrc) { setEmojiVisibility(); applyRageAnimation(); return; } 
+  // Always set src to ensure reload (some browsers skip onload when cached)
   lastArtSrc = src; 
   el.petImage.classList.remove('show'); 
   setEmojiVisibility(); 
@@ -371,7 +492,7 @@ function applyRageAnimation() {
   // Remove existing rage classes
   el.petImage.classList.remove('rage-furious', 'rage-angry', 'rage-annoyed', 'rage-calm');
   
-  const rage = state.rage || 0;
+  const rage = getMainPet().rage || 0;
   
   if (rage >= 90) {
     el.petImage.classList.add('rage-furious');
@@ -385,40 +506,77 @@ function applyRageAnimation() {
   // No animation for neutral range (21-49)
 }
 
+function applyRageAnimationToPet(imageEl, petData) {
+  if (!imageEl || !petData) return;
+  
+  // Remove existing rage classes
+  imageEl.classList.remove('rage-furious', 'rage-angry', 'rage-annoyed', 'rage-calm');
+  
+  const rage = petData.rage || 0;
+  
+  if (rage >= 90) {
+    imageEl.classList.add('rage-furious');
+  } else if (rage >= 75) {
+    imageEl.classList.add('rage-angry');
+  } else if (rage >= 50) {
+    imageEl.classList.add('rage-annoyed');
+  } else if (rage <= 20) {
+    imageEl.classList.add('rage-calm');
+  }
+  // No animation for neutral range (21-49)
+}
+
+// Ticking now updates every pet independently and keeps slot 0 mirrored to legacy fields
 function tick() {
-  state.tick += 1; const d = activePetConfig().decay;
-  const hungerRise = d.fullnessPerTick * multFromTraits('fullnessDecayMultiplier');
-  const dirtinessRise = d.cleanlinessPerTick * multFromTraits('cleanlinessDecayMultiplier');
-  const baseHappinessDecay = d.happinessBaseDecay * multFromTraits('happinessBaseDecayMultiplier');
-  const hungryPenalty = d.happinessHungryPenalty * multFromTraits('happinessHungryPenaltyMultiplier');
-  const dirtyPenalty = d.happinessDirtyPenalty * multFromTraits('happinessDirtyPenaltyMultiplier');
-  state.hunger = clamp(state.hunger + hungerRise);
-  state.dirtiness = clamp(state.dirtiness + dirtinessRise);
-  let happinessDecay = baseHappinessDecay; if (state.hunger > 70) happinessDecay += hungryPenalty; if (state.dirtiness > 70) happinessDecay += dirtyPenalty; state.happiness = clamp(state.happiness - happinessDecay);
-  // rage dynamics
-  let rageDelta = 0; 
-  if (state.hunger > 75) rageDelta += 3; 
-  if (state.hunger > 90) rageDelta += 2; 
-  if (state.dirtiness > 70) rageDelta += 2; 
-  if (state.happiness < 30) rageDelta += 3; 
-  if (state.energy < 20) rageDelta += 2; 
+  state.tick += 1;
   
-  // tiredness calms rage over time
-  if (state.energy <= 25) rageDelta -= 3; 
-  if (state.energy <= 15) rageDelta -= 3; 
-  if (state.energy <= 10) rageDelta -= 4; 
+  for (const [slotId, pet] of Object.entries(state.pets || {})) {
+    if (!pet || pet.type !== 'pet') continue;
+    const d = getPetById(pet.petTypeId).decay;
+    const hungerRise = d.fullnessPerTick * multFromTraits('fullnessDecayMultiplier', pet);
+    const dirtinessRise = d.cleanlinessPerTick * multFromTraits('cleanlinessDecayMultiplier', pet);
+    const baseHappinessDecay = d.happinessBaseDecay * multFromTraits('happinessBaseDecayMultiplier', pet);
+    const hungryPenalty = d.happinessHungryPenalty * multFromTraits('happinessHungryPenaltyMultiplier', pet);
+    const dirtyPenalty = d.happinessDirtyPenalty * multFromTraits('happinessDirtyPenaltyMultiplier', pet);
+    pet.hunger = clamp((pet.hunger || 0) + hungerRise);
+    pet.dirtiness = clamp((pet.dirtiness || 0) + dirtinessRise);
+    let happinessDecay = baseHappinessDecay; 
+    if ((pet.hunger || 0) > 70) happinessDecay += hungryPenalty; 
+    if ((pet.dirtiness || 0) > 70) happinessDecay += dirtyPenalty; 
+    pet.happiness = clamp((pet.happiness || 0) - happinessDecay);
+    
+    // rage dynamics
+    let rageDelta = 0; 
+    if ((pet.hunger || 0) > 75) rageDelta += 3; 
+    if ((pet.hunger || 0) > 90) rageDelta += 2; 
+    if ((pet.dirtiness || 0) > 70) rageDelta += 2; 
+    if ((pet.happiness || 0) < 30) rageDelta += 3; 
+    if ((pet.energy || 0) < 20) rageDelta += 2; 
+    
+    // tiredness calms rage over time
+    if ((pet.energy || 0) <= 25) rageDelta -= 3; 
+    if ((pet.energy || 0) <= 15) rageDelta -= 3; 
+    if ((pet.energy || 0) <= 10) rageDelta -= 4; 
+    
+    // bonus calm when needs are satisfied
+    if ((pet.dirtiness || 0) <= 25 && (pet.hunger || 0) < 40) rageDelta -= 2; 
+    
+    // gentle energy regeneration
+    const happyEnough = (pet.happiness || 0) >= 50;
+    const cleanEnough = (pet.dirtiness || 0) <= 40;
+    const fedEnough = (pet.hunger || 0) < 60;
+    const baseRegen = (happyEnough && cleanEnough && fedEnough) ? (d.energyRegenWhenHappy || 0.5) : (d.energyDecayOtherwise ? 0 : 0.2);
+    pet.energy = clamp((pet.energy || 0) + baseRegen);
+    
+    adjustRage(rageDelta - 1, pet);
+  }
   
-  // bonus calm when needs are satisfied
-  if (state.dirtiness <= 25 && state.hunger < 40) rageDelta -= 2; 
+  // Debug: log main pet stats every few ticks
+  if (state.tick % 3 === 0 && state.pets && state.pets[0]) {
+    const p = state.pets[0];
+    console.log('[DH] tick', state.tick, { hunger: Math.round(p.hunger), dirtiness: Math.round(p.dirtiness), happiness: Math.round(p.happiness), energy: Math.round(p.energy) });
+  }
   
-  // gentle energy regeneration
-  const happyEnough = state.happiness >= 50;
-  const cleanEnough = state.dirtiness <= 40;
-  const fedEnough = state.hunger < 60;
-  const baseRegen = (happyEnough && cleanEnough && fedEnough) ? (d.energyRegenWhenHappy || 0.5) : (d.energyDecayOtherwise ? 0 : 0.2);
-  state.energy = clamp(state.energy + baseRegen);
-  
-  adjustRage(rageDelta - 1);
   updateEggIncubation();
   startParticleEffects();
 }
@@ -426,7 +584,7 @@ function tick() {
 function renderHearts() {
   const wrap = document.getElementById('heartsRow');
   if (!wrap) return;
-  const { hearts } = heartsForTotal(state.lifetimeHappinessGained || 0);
+  const { hearts } = heartsForTotal(getMainPet().lifetimeHappinessGained || 0);
   const maxHearts = 10; // display up to 10 slots
   wrap.innerHTML = '';
   for (let i = 0; i < maxHearts; i++) {
@@ -438,7 +596,11 @@ function renderHearts() {
 }
 
 function renderInventory() { 
-  if (!el.inventoryGrid) return; 
+  if (!el.inventoryGrid) { console.warn('[DH] no inventoryGrid'); return; } 
+  try {
+    const total = Object.values(state.inventory || {}).reduce((a, b) => a + (Number(b) || 0), 0);
+    console.log('[DH] renderInventory totals=', total, 'items=', ITEMS.map(i=>[i.id, state.inventory?.[i.id]||0]));
+  } catch (e) { console.warn('[DH] renderInventory error', e); }
   el.inventoryGrid.innerHTML = ''; 
   for (const it of ITEMS) { 
     const count = state.inventory?.[it.id] ?? 0; 
@@ -467,7 +629,6 @@ function renderInventory() {
       barPercent = (remainingUses / it.durability.maxUses) * 100;
       showBar = true;
     }
-    // Non-durable items (food, etc.) never show bars
     
     card.innerHTML = `
       <div class="top">
@@ -486,40 +647,117 @@ function renderInventory() {
   } 
   enableDragAndDrop(); 
 }
-function onUseItem(itemId) { 
-  const item = getItemById(itemId); 
+function onUseItem(itemId, targetPetSlot = 0) { 
+  const item = getItemById(itemId) || state.breedingEggs?.[itemId];
   if (!item) return; 
   const count = state.inventory?.[itemId] ?? 0; 
   if (count <= 0) return; 
   
+  // Get target pet
+  const targetPet = state.pets?.[targetPetSlot];
+  if (!targetPet || targetPet.type !== 'pet') {
+    console.log(`Cannot use item on slot ${targetPetSlot}: not a valid pet`);
+    return;
+  }
+  
   // For items without durability, just reduce count
   if (!item.durability) {
+    if (USE_STORE && store) {
+      // Map effects to deltas
+      const effects = item.effects || {};
+      let hunger = 0; 
+      if (typeof effects.hunger === 'number') hunger += effects.hunger;
+      if (typeof effects.fullness === 'number') hunger -= effects.fullness; 
+      let cleanliness = effects.cleanliness || 0; 
+      let energy = effects.energy || 0; 
+      let happiness = effects.happiness || 0; 
+      let rage = effects.rage || 0;
+      // Use-type multipliers for slot target
+      if (item.useType === 'feed') { 
+        hunger *= multFromTraits('feedFullnessGainMultiplier', targetPet); 
+        happiness *= multFromTraits('feedHappinessGainMultiplier', targetPet); 
+        rage += -8; 
+      } 
+      if (item.useType === 'groom') { 
+        cleanliness *= multFromTraits('groomCleanlinessGainMultiplier', targetPet); 
+        happiness *= multFromTraits('groomHappinessGainMultiplier', targetPet); 
+        energy += activeTraits(targetPet).reduce((sum, t) => sum + (t?.modifiers?.groomEnergyDelta || 0), 0); 
+      } 
+      if (item.useType === 'play') { 
+        happiness *= multFromTraits('playHappinessMultiplier', targetPet); 
+        energy *= multFromTraits('playEnergyMultiplier', targetPet); 
+        rage += -5; 
+      } 
+      // Dispatch inventory decrement and deltas
+      store.dispatch({ type: ActionTypes.MODIFY_INVENTORY, payload: { itemId, delta: -1 } });
+      store.dispatch({ type: ActionTypes.APPLY_DELTAS, payload: { slotId: targetPetSlot, deltas: { hunger, dirtiness: -cleanliness, energy, happiness, rage } } });
+      startParticleEffects();
+      return;
+    }
+    // Fallback imperative path
     state.inventory[itemId] = count - 1; 
-    applyItemEffects(item); 
+    applyItemEffects(item, targetPet); 
     render(); 
     save(); 
     return;
   }
   
-  // For items with durability, handle wear
+  // For items with durability, handle wear (imperative path for now)
   const instanceId = getItemInstance(itemId);
   if (!instanceId) return; // Shouldn't happen
   
-  applyItemEffects(item);
+  if (USE_STORE && store) {
+    // Apply effects
+    const effects = item.effects || {};
+    let hunger = 0; 
+    if (typeof effects.hunger === 'number') hunger += effects.hunger;
+    if (typeof effects.fullness === 'number') hunger -= effects.fullness; 
+    let cleanliness = effects.cleanliness || 0; 
+    let energy = effects.energy || 0; 
+    let happiness = effects.happiness || 0; 
+    let rage = effects.rage || 0;
+    if (item.useType === 'groom') {
+      cleanliness *= multFromTraits('groomCleanlinessGainMultiplier', targetPet); 
+      happiness *= multFromTraits('groomHappinessGainMultiplier', targetPet); 
+      energy += activeTraits(targetPet).reduce((sum, t) => sum + (t?.modifiers?.groomEnergyDelta || 0), 0); 
+    }
+    if (item.useType === 'play') {
+      happiness *= multFromTraits('playHappinessMultiplier', targetPet); 
+      energy *= multFromTraits('playEnergyMultiplier', targetPet); 
+      rage += -5; 
+    }
+    if (item.useType === 'feed') {
+      hunger *= multFromTraits('feedFullnessGainMultiplier', targetPet); 
+      happiness *= multFromTraits('feedHappinessGainMultiplier', targetPet); 
+      rage += -8; 
+    }
+    store.dispatch({ type: ActionTypes.APPLY_DELTAS, payload: { slotId: targetPetSlot, deltas: { hunger, dirtiness: -cleanliness, energy, happiness, rage } } });
+    // Damage roll
+    const damageChance = calculateItemDamageChance(item, targetPet);
+    const roll = Math.random();
+    if (roll < damageChance) {
+      store.dispatch({ type: ActionTypes.DAMAGE_ITEM_INSTANCE, payload: { itemId, instanceId, maxUses: item.durability.maxUses } });
+    } else {
+      // Ensure instance exists in durability map
+      store.dispatch({ type: ActionTypes.CREATE_ITEM_INSTANCE, payload: { itemId, instanceId } });
+    }
+    startParticleEffects();
+    return;
+  }
   
-  // Roll for damage
-  const damageChance = calculateItemDamageChance(item);
+  applyItemEffects(item, targetPet);
+  
+  // Roll for damage using target pet's stats
+  const damageChance = calculateItemDamageChance(item, targetPet);
   const roll = Math.random();
   
-  console.log(`Using ${item.label}: rage=${state.rage}, damageChance=${damageChance.toFixed(3)}, roll=${roll.toFixed(3)}`);
+  console.log(`Using ${item.label} on ${targetPet.name}: rage=${targetPet.rage}, damageChance=${damageChance.toFixed(3)}, roll=${roll.toFixed(3)}`);
   
   if (roll < damageChance) {
     const broke = damageItemInstance(itemId, instanceId);
     if (broke) {
-      // TODO: Show message that item broke
       console.log(`${item.label} broke!`);
     } else {
-      // TODO: Show message that item was damaged
       console.log(`${item.label} was damaged`);
     }
   } else {
@@ -531,7 +769,10 @@ function onUseItem(itemId) {
   startParticleEffects(); // Update particles immediately after stat changes
 }
 
-function applyItemEffects(item) { 
+function applyItemEffects(item, targetPet = null) { 
+  // Use target pet or fall back to main state
+  const pet = targetPet || state;
+  
   const effects = item.effects || {}; 
   // Map legacy keys to new hunger scale (lower hunger is better)
   let hunger = 0; 
@@ -544,30 +785,36 @@ function applyItemEffects(item) {
   let rage = effects.rage || 0;
   
   if (item.useType === 'feed') { 
-    hunger *= multFromTraits('feedFullnessGainMultiplier'); 
-    happiness *= multFromTraits('feedHappinessGainMultiplier'); 
-    adjustRage(-8); 
+    hunger *= multFromTraits('feedFullnessGainMultiplier', pet); 
+    happiness *= multFromTraits('feedHappinessGainMultiplier', pet); 
+    adjustRage(-8, targetPet); 
   } 
   if (item.useType === 'groom') { 
-    cleanliness *= multFromTraits('groomCleanlinessGainMultiplier'); 
-    happiness *= multFromTraits('groomHappinessGainMultiplier'); 
-    energy += activeTraits().reduce((sum, t) => sum + (t?.modifiers?.groomEnergyDelta || 0), 0); 
+    cleanliness *= multFromTraits('groomCleanlinessGainMultiplier', pet); 
+    happiness *= multFromTraits('groomHappinessGainMultiplier', pet); 
+    energy += activeTraits(pet).reduce((sum, t) => sum + (t?.modifiers?.groomEnergyDelta || 0), 0); 
     // Don't reduce rage for grooming - items now set rage directly
   } 
   if (item.useType === 'play') { 
-    happiness *= multFromTraits('playHappinessMultiplier'); 
-    energy *= multFromTraits('playEnergyMultiplier'); 
-    adjustRage(-5); 
+    happiness *= multFromTraits('playHappinessMultiplier', pet); 
+    energy *= multFromTraits('playEnergyMultiplier', pet); 
+    adjustRage(-5, targetPet); 
   } 
   
-  // Apply mapped deltas
-  state.hunger = clamp(state.hunger + hunger); 
+  // Apply mapped deltas to target pet
+  pet.hunger = clamp((pet.hunger || 0) + hunger); 
   // cleanliness is the inverse of dirtiness in state
-  if (cleanliness !== 0) state.dirtiness = clamp(state.dirtiness - cleanliness);
-  state.energy = clamp(state.energy + energy); 
-  state.happiness = clamp(state.happiness + happiness); 
-  if (rage !== 0) adjustRage(rage);
-  addHappinessGain(Math.round(Math.max(0, happiness))); 
+  if (cleanliness !== 0) pet.dirtiness = clamp((pet.dirtiness || 0) - cleanliness);
+  pet.energy = clamp((pet.energy || 0) + energy); 
+  pet.happiness = clamp((pet.happiness || 0) + happiness); 
+  if (rage !== 0) adjustRage(rage, targetPet);
+  
+  // Add happiness gain tracking
+  if (happiness > 0) {
+    pet.lifetimeHappinessGained = (pet.lifetimeHappinessGained || 0) + Math.round(happiness);
+  }
+  
+  console.log(`Applied item effects to ${pet.name || 'pet'}: hunger=${pet.hunger}, happiness=${pet.happiness}, energy=${pet.energy}, dirtiness=${pet.dirtiness}`);
 }
 
 function computeStatusTags(s) {
@@ -589,7 +836,7 @@ function computeStatusTags(s) {
 
 function renderStatusTags() {
   if (!el.statusTags) return;
-  const statusData = computeStatusTags(state);
+  const statusData = computeStatusTags(getMainPet());
   el.statusTags.innerHTML = '';
   
   for (const status of statusData) {
@@ -629,36 +876,27 @@ function getSpriteCenterOffset() {
   return { x: centerX, y: centerY };
 }
 
+// Particle effects now derive from main pet (slot 0) and use dirtiness correctly
 function startParticleEffects() {
   stopParticleEffects(); // Clear existing intervals
   
-  const cleanliness = state.cleanliness || 0;
-  const rage = state.rage || 0;
-  console.log(`Cleanliness: ${cleanliness}, Rage: ${rage}, checking particle effects`);
+  const mainPet = state.pets?.[0] || state;
+  const dirtiness = mainPet.dirtiness || 0;
+  const cleanliness = clamp(100 - dirtiness); // derive cleanliness from dirtiness
+  const rage = mainPet.rage || 0;
   
   // Rage particles (when furious)
   if (rage >= 90) {
-    console.log('Starting furious rage particles');
-    particleIntervals.rage = setInterval(() => createRageParticle(), 150); // Much faster spawn
+    particleIntervals.rage = setInterval(() => createRageParticle(), 150);
   }
   
   // Cleanliness particles (can run alongside rage particles)
   if (cleanliness <= 15) {
-    // Filthy - fast sweat particles
-    console.log('Starting filthy sweat particles');
     particleIntervals.sweat = setInterval(() => createSweatParticle(), 400);
   } else if (cleanliness <= 30) {
-    // Dirty - slow sweat particles
-    console.log('Starting dirty sweat particles');
     particleIntervals.sweat = setInterval(() => createSweatParticle(), 1200);
   } else if (cleanliness >= 85) {
-    // Pristine - sparkle particles
-    console.log('Starting pristine sparkles');
     particleIntervals.sparkle = setInterval(() => createSparkleParticle(), 800);
-  }
-  
-  if (!particleIntervals.rage && !particleIntervals.sweat && !particleIntervals.sparkle) {
-    console.log('No particles for current stats - Cleanliness:', cleanliness, 'Rage:', rage);
   }
 }
 
@@ -785,6 +1023,12 @@ function renderAllPets() {
     const petData = state.pets?.[slotId];
     
     const emojiEl = petCard.querySelector('.pet-emoji');
+    const imageEl = petCard.querySelector('.pet-image');
+    const nameEl = petCard.querySelector('.pet-name-display, #petNameDisplay');
+    const heartsEl = petCard.querySelector('.hearts-row');
+    const statusEl = petCard.querySelector('.status-tags');
+    const infoBtn = petCard.querySelector('.info-btn');
+    let hintEl = petCard.querySelector('.empty-hint');
     const miniWrap = petCard.querySelector('.mini-meters') || (() => { const d = document.createElement('div'); d.className = 'mini-meters'; petCard.appendChild(d); return d; })();
     
     if (!petData) {
@@ -792,9 +1036,20 @@ function renderAllPets() {
       petCard.classList.remove('incubating');
       petCard.classList.add('empty');
       miniWrap.innerHTML = '';
-      if (emojiEl) { emojiEl.classList.remove('egg-state'); emojiEl.style.backgroundImage = ''; emojiEl.textContent = '⬜️'; }
+      if (emojiEl) { emojiEl.classList.remove('egg-state'); emojiEl.style.backgroundImage = ''; emojiEl.textContent = ''; emojiEl.style.display = 'none'; }
+      if (imageEl) { imageEl.classList.remove('show'); imageEl.src = ''; }
+      if (nameEl) { nameEl.textContent = ''; nameEl.style.display = 'none'; }
+      if (heartsEl) { heartsEl.innerHTML = ''; }
+      if (statusEl) { statusEl.innerHTML = ''; }
+      if (infoBtn) infoBtn.style.display = 'none';
+      if (!hintEl) { hintEl = document.createElement('div'); hintEl.className = 'empty-hint'; petCard.appendChild(hintEl); }
+      hintEl.textContent = 'drag an egg to incubate';
       continue;
     }
+    
+    // Non-empty: ensure hint hidden and info visible
+    if (hintEl) hintEl.remove();
+    if (infoBtn) infoBtn.style.display = '';
     
     if (petData.type === 'incubating') {
       // Incubating egg
@@ -805,39 +1060,107 @@ function renderAllPets() {
         emojiEl.classList.add('egg-state');
         emojiEl.style.backgroundImage = "url('assets/pets/egg.png')";
         emojiEl.textContent = '';
+        emojiEl.style.display = 'block';
       }
+      if (imageEl) { imageEl.classList.remove('show'); }
+      if (nameEl) { nameEl.textContent = petData.name || 'Incubating'; nameEl.style.display = 'block'; }
+      if (heartsEl) { heartsEl.innerHTML = ''; }
+      if (statusEl) { statusEl.innerHTML = ''; }
       miniWrap.innerHTML = '';
       continue;
     }
     
     if (petData.type === 'pet') {
       petCard.classList.remove('incubating', 'empty');
-      // Set emoji for the pet slot (not the main stage emoji)
-      if (emojiEl) { emojiEl.classList.remove('egg-state'); emojiEl.style.backgroundImage = ''; emojiEl.textContent = getEmoji(petData); }
       
+      // Ensure any egg classes are removed from emoji
+      if (emojiEl) {
+        emojiEl.classList.remove('egg-state', 'egg-twitch');
+        emojiEl.style.backgroundImage = '';
+        emojiEl.textContent = '';
+      }
+      
+      // Set pet sprite (force refresh if src mismatch or image not shown)
+      if (imageEl) {
+        const src = `assets/pets/${petData.petTypeId}_happy.png`;
+        const needsReload = !imageEl.classList.contains('show') || !imageEl.src.includes(`${petData.petTypeId}_happy.png`);
+        if (needsReload) {
+          imageEl.classList.remove('show');
+          imageEl.src = src;
+        }
+        imageEl.onload = () => {
+          imageEl.classList.add('show');
+          applyRageAnimationToPet(imageEl, petData); // Apply animations when sprite loads
+          setEmojiVisibilityForCard(emojiEl, imageEl);
+        };
+        imageEl.onerror = () => { imageEl.classList.remove('show'); setEmojiVisibilityForCard(emojiEl, imageEl); };
+        // If already shown, just update animation
+        if (imageEl.classList.contains('show')) {
+          // Sprite already loaded, just update animation
+          applyRageAnimationToPet(imageEl, petData);
+          setEmojiVisibilityForCard(emojiEl, imageEl);
+        }
+      }
+      
+      // Set pet name
+      if (nameEl) { 
+        nameEl.textContent = petData.name || 'Unnamed Pet'; 
+        nameEl.style.display = 'block';
+      }
+      
+      // Render hearts
+      if (heartsEl) {
+        const { hearts } = heartsForTotal(petData.lifetimeHappinessGained || 0);
+        const maxHearts = 10;
+        heartsEl.innerHTML = '';
+        for (let i = 0; i < maxHearts; i++) {
+          const span = document.createElement('span');
+          span.className = 'heart';
+          span.textContent = i < hearts ? '💜' : '🤍';
+          heartsEl.appendChild(span);
+        }
+      }
+      
+      // Render status tags
+      if (statusEl) {
+        const statusData = computeStatusTags(petData);
+        statusEl.innerHTML = '';
+        
+        for (const status of statusData) {
+          const tag = document.createElement('div');
+          tag.className = `status-tag ${status.statName}`;
+          tag.setAttribute('data-stat', status.statName);
+          tag.innerHTML = `
+            <div class="status-fill" style="width: ${status.fillPercent}%"></div>
+            <span class="status-label">${status.label}</span>
+          `;
+          statusEl.appendChild(tag);
+        }
+      }
+      
+      // Still render mini meters for slot 0 compatibility
       const fullness = clamp(100 - (petData.hunger ?? 50));
       const cleanliness = clamp(100 - (petData.dirtiness ?? 50));
       const energy = clamp(petData.energy ?? 0);
       
       miniWrap.innerHTML = `
-        <div class="bar mini fullness" aria-label="Fullness"><div class="fill" style="width:${fullness}%"></div><span class="value">${Math.round(fullness)}</span></div>
-        <div class="bar mini cleanliness" aria-label="Cleanliness"><div class="fill" style="width:${cleanliness}%"></div><span class="value">${Math.round(cleanliness)}</span></div>
-        <div class="bar mini energy" aria-label="Energy"><div class="fill" style="width:${energy}%"></div><span class="value">${Math.round(energy)}</span></div>
+        <div class=\"bar mini fullness\" aria-label=\"Fullness\"><div class=\"fill\" style=\"width:${fullness}%\"></div><span class=\"value\">${Math.round(fullness)}</span></div>
+        <div class=\"bar mini cleanliness\" aria-label=\"Cleanliness\"><div class=\"fill\" style=\"width:${cleanliness}%\"></div><span class=\"value\">${Math.round(cleanliness)}</span></div>
+        <div class=\"bar mini energy\" aria-label=\"Energy\"><div class=\"fill\" style=\"width:${energy}%\"></div><span class=\"value\">${Math.round(energy)}</span></div>
       `;
-      
-      // Main pet rendering is handled by existing render() function
-      // for slot 0 we still show mini meters here, too
     }
   }
 }
 
 function render() {
-  if (el.petEmoji) el.petEmoji.textContent = getEmoji(state);
+  ensureMainPetExists();
+  if (el.petEmoji) el.petEmoji.textContent = getEmoji(getMainPet());
   setPetArt();
-  if (el.barFullness && el.numFullness) setBar(el.barFullness, el.numFullness, 100 - state.hunger); // show "fullness"
-  if (el.barCleanliness && el.numCleanliness) setBar(el.barCleanliness, el.numCleanliness, 100 - state.dirtiness); // show cleanliness
-  if (el.barEnergy && el.numEnergy) setBar(el.barEnergy, el.numEnergy, state.energy);
-  if (el.barRage && el.numRage) setBar(el.barRage, el.numRage, state.rage);
+  const main = getMainPet();
+  if (el.barFullness && el.numFullness) setBar(el.barFullness, el.numFullness, 100 - (main.hunger || 0)); // show "fullness"
+  if (el.barCleanliness && el.numCleanliness) setBar(el.barCleanliness, el.numCleanliness, 100 - (main.dirtiness || 0)); // show cleanliness
+  if (el.barEnergy && el.numEnergy) setBar(el.barEnergy, el.numEnergy, main.energy || 0);
+  if (el.barRage && el.numRage) setBar(el.barRage, el.numRage, main.rage || 0);
   renderStatusTags();
   renderHearts();
   renderInventory();
@@ -845,7 +1168,7 @@ function render() {
   startParticleEffects();
   const nameBtn = document.getElementById('petNameDisplay');
   if (nameBtn) {
-    nameBtn.textContent = state.name || 'Demon';
+    nameBtn.textContent = getMainPet().name || 'Demon';
     // autoshrink to fit hearts width
     const container = nameBtn.closest('.name-hearts');
     if (container) {
@@ -942,9 +1265,12 @@ function enableDragAndDrop() {
         console.log(`Handling egg drop: ${itemId} to slot ${petSlot}`);
         handleEggDrop(itemId, petSlot);
       } else {
-        // Handle regular items (only on main pet for now)
-        if (petSlot === 0) {
-          onUseItem(itemId);
+        // Handle regular items - now works on any pet!
+        const targetPet = state.pets?.[petSlot];
+        if (targetPet && targetPet.type === 'pet') {
+          onUseItem(itemId, petSlot);
+        } else {
+          console.log(`Cannot use item on slot ${petSlot}: not a valid pet`);
         }
       }
     }, true);
@@ -967,6 +1293,33 @@ function handleEggDrop(eggItemId, petSlot) {
     return;
   }
   
+  if (USE_STORE && store) {
+    // Consume egg and start incubation
+    const eggItem = getItemById(eggItemId);
+    const now = Date.now();
+    const baseMinutes = eggItem.eggData.hatchTimeMinutes;
+    const jitterMin = eggItem.eggData.hatchJitterMin ?? 0.7;
+    const jitterMax = eggItem.eggData.hatchJitterMax ?? 1.5;
+    const jitterFactor = jitterMin + Math.random() * (jitterMax - jitterMin);
+    const hatchTime = now + Math.round(baseMinutes * 60 * 1000 * jitterFactor);
+    const genetics = (() => {
+      const mainPet = state.pets?.[0];
+      if (mainPet && mainPet.type === 'pet') {
+        const wildParent = {
+          petTypeId: eggItem.eggData.petTypeId,
+          traitIds: [TRAITS[Math.floor(Math.random() * TRAITS.length)].id],
+          name: 'Wild ' + getPetById(eggItem.eggData.petTypeId).label
+        };
+        return generateEggGenetics(mainPet, wildParent);
+      }
+      return null;
+    })();
+    store.dispatch({ type: ActionTypes.MODIFY_INVENTORY, payload: { itemId: eggItemId, delta: -1 } });
+    store.dispatch({ type: ActionTypes.START_INCUBATION, payload: { slotId: petSlot, eggItemId, hatchTime, genetics, twitchIntervalBase: eggItem.eggData.twitchIntervalBase, jitterFactor, label: getItemById(eggItemId).label } });
+    return;
+  }
+  
+  // Imperative fallback
   // Consume the egg from inventory
   state.inventory[eggItemId] = count - 1;
   
@@ -978,167 +1331,85 @@ function handleEggDrop(eggItemId, petSlot) {
   }
 }
 
-// Render trait tags on the card
-function renderTraitTags() {
-  const wrap = document.getElementById('traitTags');
-  if (!wrap) return;
-  wrap.innerHTML = '';
-  const traits = activeTraits();
-  for (const t of traits) {
-    const span = document.createElement('span');
-    span.className = 'trait-tag';
-    span.textContent = t.label;
-    wrap.appendChild(span);
-  }
-}
-
-// Rename modal behavior
-function initRenameModal() {
-  const openBtn = document.getElementById('petNameDisplay');
-  const modal = document.getElementById('renameModal');
-  const input = document.getElementById('renameInput');
-  const saveBtn = document.getElementById('renameSave');
-  const cancelBtn = document.getElementById('renameCancel');
-  if (!openBtn || !modal || !input) return;
-  const open = () => {
-    input.value = state.name || '';
-    modal.classList.remove('hidden');
-    setTimeout(() => input.focus(), 0);
-  };
-  const close = () => modal.classList.add('hidden');
-  const doSave = () => {
-    const name = (input.value || '').trim().slice(0, 20);
-    state.name = name || 'Demon';
-    save();
-    render();
-    close();
-  };
-  openBtn.addEventListener('click', open);
-  cancelBtn?.addEventListener('click', close);
-  saveBtn?.addEventListener('click', doSave);
-  // keyboard
-  modal.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') close();
-    if (e.key === 'Enter') doSave();
-  });
-}
-
-// Egg incubation system
-function startEggIncubation(eggItemId, petSlot) {
-  const eggItem = getItemById(eggItemId);
-  if (!eggItem || !eggItem.eggData) return false;
-  
-  const now = Date.now();
-  // Per-egg hatch variance
-  const baseMinutes = eggItem.eggData.hatchTimeMinutes;
-  const jitterMin = eggItem.eggData.hatchJitterMin ?? 0.7;
-  const jitterMax = eggItem.eggData.hatchJitterMax ?? 1.5;
-  const jitterFactor = jitterMin + Math.random() * (jitterMax - jitterMin);
-  const hatchTime = now + Math.round(baseMinutes * 60 * 1000 * jitterFactor);
-  
-  // Create incubating egg data
-  state.incubatingEggs[petSlot] = {
-    eggItemId,
-    startTime: now,
-    hatchTime,
-    lastTwitchTime: now,
-    nextTwitchInterval: eggItem.eggData.twitchIntervalBase,
-    // Independent randomized next twitch time so eggs don't sync
-    nextTwitchAt: now + Math.round(eggItem.eggData.twitchIntervalBase * (0.6 + Math.random() * 0.8)),
-    jitterFactor,
-  };
-  
-  // Mark pet slot as incubating
-  state.pets[petSlot] = {
-    type: 'incubating',
-    eggItemId,
-    name: `${eggItem.label}`,
-  };
-  
-  console.log(`Started incubating ${eggItem.label} in slot ${petSlot}`);
-  return true;
-}
-
-function updateEggIncubation() {
-  const now = Date.now();
-  
-  for (const [slotId, eggData] of Object.entries(state.incubatingEggs)) {
-    const timeRemaining = eggData.hatchTime - now;
-    const totalTime = eggData.hatchTime - eggData.startTime;
-    const progress = 1 - (timeRemaining / totalTime);
-    
-    // Check if ready to hatch
-    if (timeRemaining <= 0) {
-      hatchEgg(parseInt(slotId));
-      continue;
-    }
-    
-    // Seed nextTwitchAt if missing (back-compat for older saves)
-    if (!eggData.nextTwitchAt) {
-      const base = eggData.nextTwitchInterval || 2000;
-      eggData.nextTwitchAt = now + Math.round(base * (0.6 + Math.random() * 0.8));
-    }
-    
-    // Calculate twitch interval (gets faster as hatching approaches)
-    const eggItem = getItemById(eggData.eggItemId);
-    const baseInterval = eggItem.eggData.twitchIntervalBase;
-    const currentInterval = baseInterval * (0.3 + 0.7 * (1 - progress)); // 30% to 100% of base interval
-    
-    // Check if it's time for a twitch (independent schedule)
-    if (now >= eggData.nextTwitchAt) {
-      playEggTwitch(parseInt(slotId));
-      eggData.lastTwitchTime = now;
-      eggData.nextTwitchInterval = currentInterval;
-      // Reschedule with random jitter so eggs don't sync
-      const jitter = 0.6 + Math.random() * 0.8; // 0.6x - 1.4x
-      eggData.nextTwitchAt = now + Math.round(currentInterval * jitter);
-    }
-  }
-}
-
-function playEggTwitch(petSlot) {
-  const eggElement = document.querySelector(`[data-pet-slot="${petSlot}"] .pet-emoji`);
-  if (!eggElement) return;
-  
-  // Add twitch animation class
-  eggElement.classList.add('egg-twitch');
-  setTimeout(() => {
-    eggElement.classList.remove('egg-twitch');
-  }, 300);
-  
-  console.log(`Egg in slot ${petSlot} twitched`);
-}
-
 function hatchEgg(petSlot) {
+  if (USE_STORE && store) {
+    const eggData = state.incubatingEggs[petSlot];
+    if (!eggData) return;
+    const eggItem = getItemById(eggData.eggItemId);
+    let petTypeId, traitIds;
+    if (eggData.genetics) {
+      petTypeId = eggData.genetics.petTypeId;
+      traitIds = eggData.genetics.traitIds;
+    } else {
+      petTypeId = eggItem.eggData.petTypeId;
+      const numTraits = Math.floor(Math.random() * 3) + 1;
+      const availableTraits = [...TRAITS];
+      traitIds = [];
+      for (let i = 0; i < numTraits; i++) {
+        const randomIndex = Math.floor(Math.random() * availableTraits.length);
+        traitIds.push(availableTraits.splice(randomIndex, 1)[0].id);
+      }
+    }
+    const petConfig = getPetById(petTypeId);
+    const s = petConfig.startingStats;
+    const pet = {
+      petTypeId,
+      traitIds,
+      name: `Baby ${petConfig.label}`,
+      hunger: 100 - s.fullness,
+      happiness: s.happiness,
+      dirtiness: 100 - s.cleanliness,
+      energy: s.energy,
+      rage: 0,
+      lifetimeHappinessGained: 0,
+      genetics: eggData.genetics,
+    };
+    store.dispatch({ type: ActionTypes.HATCH_EGG, payload: { slotId: petSlot, pet } });
+    return;
+  }
+  
+  // Imperative fallback (existing)
   const eggData = state.incubatingEggs[petSlot];
   if (!eggData) return;
   
   const eggItem = getItemById(eggData.eggItemId);
-  const petTypeId = eggItem.eggData.petTypeId;
-  const petConfig = getPetById(petTypeId);
   
-  // Generate random traits (1-3 traits)
-  const numTraits = Math.floor(Math.random() * 3) + 1;
-  const availableTraits = [...TRAITS];
-  const traitIds = [];
-  for (let i = 0; i < numTraits; i++) {
-    const randomIndex = Math.floor(Math.random() * availableTraits.length);
-    traitIds.push(availableTraits.splice(randomIndex, 1)[0].id);
+  // Use genetics if available, otherwise fallback to original system
+  let petTypeId, traitIds;
+  if (eggData.genetics) {
+    petTypeId = eggData.genetics.petTypeId;
+    traitIds = eggData.genetics.traitIds;
+    console.log(`Hatching egg with inherited genetics - Type: ${petTypeId}, Traits: ${traitIds.join(', ')}`);
+  } else {
+    // Fallback to original random system
+    petTypeId = eggItem.eggData.petTypeId;
+    const numTraits = Math.floor(Math.random() * 3) + 1;
+    const availableTraits = [...TRAITS];
+    traitIds = [];
+    for (let i = 0; i < numTraits; i++) {
+      const randomIndex = Math.floor(Math.random() * availableTraits.length);
+      traitIds.push(availableTraits.splice(randomIndex, 1)[0].id);
+    }
+    console.log(`Hatching egg with random genetics (fallback) - Type: ${petTypeId}, Traits: ${traitIds.join(', ')}`);
   }
   
-  // Create hatched pet
+  const petConfig = getPetById(petTypeId);
+  
+  // Create hatched pet using determined genetics
   const s = petConfig.startingStats;
   state.pets[petSlot] = {
     type: 'pet',
     petTypeId,
     traitIds,
     name: `Baby ${petConfig.label}`,
-    fullness: s.fullness,
+    hunger: 100 - s.fullness, // Use hunger scale
     happiness: s.happiness,
-    cleanliness: s.cleanliness,
+    dirtiness: 100 - s.cleanliness, // Use dirtiness scale
     energy: s.energy,
     rage: 0,
     lifetimeHappinessGained: 0,
+    // Store genetics lineage for future breeding
+    genetics: eggData.genetics,
   };
   
   // Clean up incubation data
@@ -1146,6 +1417,327 @@ function hatchEgg(petSlot) {
   
   console.log(`Egg hatched into ${petConfig.label} in slot ${petSlot}!`);
   render();
+}
+
+// Genetics system for egg breeding
+function performPunnettSquare(parent1Traits, parent2Traits) {
+  // Each parent contributes up to 3 traits
+  // For simplicity, we'll treat each trait as having a 50% chance of being passed down
+  // This creates a simplified Punnett square where each trait has independent inheritance
+  
+  const inheritedTraits = new Set();
+  const allParentTraits = [...new Set([...parent1Traits, ...parent2Traits])];
+  
+  // Each trait from either parent has a 50% chance of being inherited
+  for (const traitId of allParentTraits) {
+    const parent1Has = parent1Traits.includes(traitId);
+    const parent2Has = parent2Traits.includes(traitId);
+    
+    let inheritanceChance = 0;
+    if (parent1Has && parent2Has) {
+      // Both parents have it: 75% chance (dominant trait)
+      inheritanceChance = 0.75;
+    } else if (parent1Has || parent2Has) {
+      // One parent has it: 50% chance
+      inheritanceChance = 0.5;
+    }
+    
+    if (Math.random() < inheritanceChance) {
+      inheritedTraits.add(traitId);
+    }
+  }
+  
+  // Ensure at least 1 trait, max 3 traits
+  const resultTraits = Array.from(inheritedTraits);
+  if (resultTraits.length === 0) {
+    // If no traits inherited, give one random trait from parents
+    const randomParentTrait = allParentTraits[Math.floor(Math.random() * allParentTraits.length)];
+    if (randomParentTrait) resultTraits.push(randomParentTrait);
+  }
+  
+  return resultTraits.slice(0, 3); // Max 3 traits
+}
+
+function determinePetType(parent1Type, parent2Type) {
+  // For now, randomly choose one parent's type
+  // Could be enhanced with more complex genetics later
+  return Math.random() < 0.5 ? parent1Type : parent2Type;
+}
+
+function generateEggGenetics(parent1, parent2) {
+  // Determine offspring type and traits using genetics
+  const offspringType = determinePetType(parent1.petTypeId, parent2.petTypeId);
+  const offspringTraits = performPunnettSquare(parent1.traitIds || [], parent2.traitIds || []);
+  
+  return {
+    petTypeId: offspringType,
+    traitIds: offspringTraits,
+    parent1: {
+      petTypeId: parent1.petTypeId,
+      traitIds: parent1.traitIds || [],
+      name: parent1.name
+    },
+    parent2: {
+      petTypeId: parent2.petTypeId, 
+      traitIds: parent2.traitIds || [],
+      name: parent2.name
+    }
+  };
+}
+
+function ensureMainPetExists() {
+  if (!state.pets) state.pets = {};
+  if (!state.pets[0] || state.pets[0].type !== 'pet') {
+    const cfg = activePetConfig(state);
+    const s = cfg.startingStats;
+    state.pets[0] = {
+      type: 'pet',
+      petTypeId: state.petTypeId || PETS[0].id,
+      traitIds: state.traitIds || [TRAITS[0].id],
+      name: state.name || 'Demon',
+      hunger: state.hunger ?? (100 - s.fullness),
+      happiness: state.happiness ?? s.happiness,
+      dirtiness: state.dirtiness ?? (100 - s.cleanliness),
+      energy: state.energy ?? s.energy,
+      rage: state.rage ?? 0,
+      lifetimeHappinessGained: state.lifetimeHappinessGained || 0,
+    };
+  }
+}
+
+// Override maybeGrantStarterPack to always grant when empty regardless of flag
+function maybeGrantStarterPack() {
+  try {
+    const counts = Object.values(state.inventory || {});
+    const total = counts.reduce((a, b) => a + (Number(b) || 0), 0);
+    console.log('[DH] starter-check total items=', total);
+    if (total === 0) {
+      for (const it of ITEMS) state.inventory[it.id] = it.defaultCount || 1;
+      console.log('[DH] starter-granted', state.inventory);
+      state.starterGranted = true; save();
+    }
+    // backfill any missing items added later
+    for (const it of ITEMS) if (state.inventory[it.id] == null) state.inventory[it.id] = it.defaultCount || 0;
+  } catch (e) { console.warn('[DH] starter error', e); }
+}
+
+function initDebug() {
+  const toggle = document.getElementById('debugToggle');
+  const panel = document.getElementById('debugPanel');
+  const itemSel = document.getElementById('debugItemSelect');
+  const qtyInp = document.getElementById('debugItemQty');
+  const addBtn = document.getElementById('debugAddBtn');
+  const add5Btn = document.getElementById('debugAdd5Btn');
+  const grantAllBtn = document.getElementById('debugGrantAllBtn');
+  const debugSaveBtn = document.getElementById('debugSaveBtn');
+  const debugResetBtn = document.getElementById('debugResetBtn');
+  if (!toggle || !panel) return;
+  if (itemSel && !itemSel.children.length) {
+    for (const it of ITEMS) { const opt = document.createElement('option'); opt.value = it.id; opt.textContent = `${it.emoji} ${it.label}`; itemSel.appendChild(opt); }
+  }
+  toggle.onclick = () => panel.classList.toggle('hidden');
+  const addQty = (q) => { const id = itemSel?.value || ITEMS[0]?.id; if (!id) return; state.inventory[id] = (state.inventory[id] || 0) + q; save(); render(); };
+  addBtn && (addBtn.onclick = () => addQty(Math.max(1, Number(qtyInp?.value || 1))));
+  add5Btn && (add5Btn.onclick = () => addQty(5));
+  grantAllBtn && (grantAllBtn.onclick = () => { for (const it of ITEMS) state.inventory[it.id] = (state.inventory[it.id] || 0) + 5; save(); render(); });
+  // New: debug panel Save/Reset
+  if (debugSaveBtn) debugSaveBtn.onclick = save;
+  if (debugResetBtn) debugResetBtn.onclick = resetAll;
+}
+
+// define init last
+function init() {
+  console.log('[DH] build loaded', { version: SAVE_VERSION, useStore: false, storageKey: STORAGE_KEY, cwd: location.href });
+  ensureMainPetExists();
+  maybeGrantStarterPack();
+  // Start ticking first so stats progress even if UI init has hiccups
+  try { startTicking(); } catch (e) { console.error('[DH] failed to start ticking', e); }
+  try {
+    initPetTypes();
+    initTraits();
+    initToys();
+    bindEvents();
+    initDebug();
+    initRenameModal();
+    render();
+  } catch (e) {
+    console.error('[DH] init error', e);
+  }
+}
+
+// guard init functions when controls are absent
+function initPetTypes() {
+  if (!el.petTypeSelect) return;
+  el.petTypeSelect.innerHTML = '';
+  for (const p of PETS) { const opt = document.createElement('option'); opt.value = p.id; opt.textContent = p.label; el.petTypeSelect.appendChild(opt); }
+  el.petTypeSelect.value = state.petTypeId;
+}
+
+function initTraits() {
+  if (!el.traitSelect) return;
+  el.traitSelect.innerHTML = '';
+  for (const t of TRAITS) { const opt = document.createElement('option'); opt.value = t.id; opt.textContent = t.label; opt.title = t.description; el.traitSelect.appendChild(opt); }
+  const set = new Set(state.traitIds || []);
+  for (const option of el.traitSelect.options) option.selected = set.has(option.value);
+}
+
+function initToys() { if (!el.toySelect) return; el.toySelect.innerHTML = ''; for (const t of toys) { const opt = document.createElement('option'); opt.value = t.id; opt.textContent = t.label; el.toySelect.appendChild(opt); } }
+
+function bindEvents() {
+  if (el.feedBtn) el.feedBtn.addEventListener('click', onFeed);
+  if (el.petBtn) el.petBtn.addEventListener('click', onPet);
+  if (el.groomBtn) el.groomBtn.addEventListener('click', onGroom);
+  if (el.playBtn) el.playBtn.addEventListener('click', onPlay);
+  el.saveBtn.addEventListener('click', save);
+  el.resetBtn.addEventListener('click', resetAll);
+  if (el.petTypeSelect) el.petTypeSelect.addEventListener('change', onChangePetType);
+  if (el.traitSelect) el.traitSelect.addEventListener('change', onChangeTraits);
+  
+  // Breeding mode toggle
+  const breedingToggle = document.getElementById('breedingToggle');
+  if (breedingToggle) {
+    breedingToggle.addEventListener('click', toggleBreedingMode);
+  }
+  
+  // Pet card click handlers for breeding
+  const petCards = document.querySelectorAll('.pet-card[data-pet-slot]');
+  for (const card of petCards) {
+    card.addEventListener('click', (e) => {
+      // Only handle breeding clicks if not clicking on interactive elements
+      if (e.target.closest('#petNameDisplay, .info-btn, .pet-side')) return;
+      
+      const petSlot = parseInt(card.getAttribute('data-pet-slot'));
+      selectPetForBreeding(petSlot);
+    });
+  }
+}
+
+function onChangePetType() { const nextId = el.petTypeSelect.value; if (!getPetById(nextId)) return; const keepName = state.pets?.[0]?.name || 'Demon'; const keepTraits = state.traitIds; const keepInv = state.inventory; state = defaultState(nextId, keepTraits); state.pets[0].name = keepName; state.inventory = keepInv; render(); save(); }
+function onChangeTraits() { const selected = Array.from(el.traitSelect.selectedOptions).map((o) => o.value); const filtered = selected.filter((id) => getTraitById(id)).slice(0, 3); state.traitIds = filtered; save(); }
+
+const emojiByType = { growler: '🐶', harpie: '🧚‍♀️', default: '😺' };
+function getEmoji(s) { return emojiByType[s?.petTypeId] || emojiByType.default; }
+
+function toggleBreedingMode() { /* temporarily disabled */ }
+function selectPetForBreeding() { /* temporarily disabled */ }
+
+const HEART_BASE = 300;
+function heartsForTotal(total) {
+  let hearts = 0;
+  let cost = HEART_BASE;
+  let remaining = total || 0;
+  while (remaining >= cost) {
+    remaining -= cost;
+    hearts += 1;
+    cost *= 2;
+  }
+  return { hearts, progress: remaining / cost };
+}
+function addHappinessGain(delta) {
+  const p0 = state.pets?.[0];
+  if (delta > 0 && p0) p0.lifetimeHappinessGained = (p0.lifetimeHappinessGained || 0) + delta;
+}
+
+function setEmojiVisibilityForCard(emojiEl, imageEl) {
+  if (!emojiEl) return;
+  const showImg = !!imageEl && imageEl.classList.contains('show');
+  emojiEl.style.display = showImg ? 'none' : 'block';
+}
+
+function updateEggIncubation() {
+  const now = Date.now();
+  for (const [slotId, eggData] of Object.entries(state.incubatingEggs || {})) {
+    if (!eggData) continue;
+    const timeRemaining = eggData.hatchTime - now;
+    const totalTime = eggData.hatchTime - eggData.startTime;
+    const progress = 1 - (timeRemaining / totalTime);
+    if (timeRemaining <= 0) {
+      hatchEgg(parseInt(slotId));
+      continue;
+    }
+    // Twitch schedule
+    const eggItem = getItemById(eggData.eggItemId);
+    const baseInterval = eggItem?.eggData?.twitchIntervalBase || 2500;
+    const currentInterval = baseInterval * (0.3 + 0.7 * (1 - progress));
+    if (!eggData.nextTwitchAt) eggData.nextTwitchAt = now + Math.round(currentInterval);
+    if (now >= eggData.nextTwitchAt) {
+      playEggTwitch(parseInt(slotId));
+      eggData.lastTwitchTime = now;
+      eggData.nextTwitchInterval = currentInterval;
+      const jitter = 0.6 + Math.random() * 0.8;
+      eggData.nextTwitchAt = now + Math.round(currentInterval * jitter);
+    }
+  }
+}
+
+function initRenameModal() {
+  const modal = document.getElementById('renameModal');
+  const input = document.getElementById('renameInput');
+  const saveBtn = document.getElementById('renameSave');
+  const cancelBtn = document.getElementById('renameCancel');
+  if (!modal || !input) return;
+
+  let targetSlot = 0;
+  const openFor = (slot) => {
+    targetSlot = Number(slot) || 0;
+    const pet = state.pets?.[targetSlot];
+    input.value = (pet?.name || 'Demon').trim();
+    modal.classList.remove('hidden');
+    setTimeout(() => input.focus(), 0);
+  };
+  const close = () => modal.classList.add('hidden');
+  const doSave = () => {
+    const name = (input.value || '').trim().slice(0, 20) || 'Demon';
+    if (!state.pets) state.pets = {};
+    if (!state.pets[targetSlot]) return close();
+    state.pets[targetSlot].name = name;
+    save();
+    render();
+    close();
+  };
+
+  // Click: main name and baby names
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('#petNameDisplay, .pet-name-display');
+    if (!btn) return;
+    const card = btn.closest('[data-pet-slot]');
+    const slot = card ? card.getAttribute('data-pet-slot') : 0;
+    openFor(slot);
+  });
+
+  cancelBtn?.addEventListener('click', close);
+  saveBtn?.addEventListener('click', doSave);
+  modal.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); if (e.key === 'Enter') doSave(); });
+}
+
+function startEggIncubation(eggItemId, petSlot) {
+  const eggItem = getItemById(eggItemId);
+  if (!eggItem || !eggItem.eggData) return false;
+  const now = Date.now();
+  const baseMinutes = eggItem.eggData.hatchTimeMinutes;
+  const jitterMin = eggItem.eggData.hatchJitterMin ?? 0.7;
+  const jitterMax = eggItem.eggData.hatchJitterMax ?? 1.5;
+  const jitterFactor = jitterMin + Math.random() * (jitterMax - jitterMin);
+  const hatchTime = now + Math.round(baseMinutes * 60 * 1000 * jitterFactor);
+  state.incubatingEggs[petSlot] = {
+    eggItemId,
+    startTime: now,
+    hatchTime,
+    lastTwitchTime: now,
+    nextTwitchInterval: eggItem.eggData.twitchIntervalBase,
+    nextTwitchAt: now + Math.round(eggItem.eggData.twitchIntervalBase * (0.6 + Math.random() * 0.8)),
+    jitterFactor,
+  };
+  state.pets[petSlot] = { type: 'incubating', eggItemId, name: eggItem.label };
+  console.log(`Started incubating ${eggItem.label} in slot ${petSlot}`);
+  return true;
+}
+
+function playEggTwitch(petSlot) {
+  const eggElement = document.querySelector(`[data-pet-slot="${petSlot}"] .pet-emoji`);
+  if (!eggElement) return;
+  eggElement.classList.add('egg-twitch');
+  setTimeout(() => eggElement.classList.remove('egg-twitch'), 300);
 }
 
 if (document.readyState === 'loading') {

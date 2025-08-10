@@ -35,13 +35,118 @@
               </div>
               <div class="mini-meters"></div>
             </div>
-            <div class="pet-card empty" data-pet-slot="1"><div class="pet-emoji">⬜️</div></div>
-            <div class="pet-card empty" data-pet-slot="2"><div class="pet-emoji">⬜️</div></div>
-            <div class="pet-card empty" data-pet-slot="3"><div class="pet-emoji">⬜️</div></div>
-            <div class="pet-card empty" data-pet-slot="4"><div class="pet-emoji">⬜️</div></div>
-            <div class="pet-card empty" data-pet-slot="5"><div class="pet-emoji">⬜️</div></div>
-            <div class="pet-card empty" data-pet-slot="6"><div class="pet-emoji">⬜️</div></div>
-            <div class="pet-card empty" data-pet-slot="7"><div class="pet-emoji">⬜️</div></div>
+            <div class="pet-card empty" data-pet-slot="1">
+              <div class="pet-visual">
+                <div class="pet-emoji" aria-label="pet">⬜️</div>
+                <img class="pet-image" alt="pet" />
+                <div class="name-hearts">
+                  <button class="pet-name-display">Empty</button>
+                  <div class="hearts-row"></div>
+                </div>
+                <div class="pet-side">
+                  <div class="status-tags"></div>
+                </div>
+                <div class="pet-particles"></div>
+                <button class="info-btn" aria-label="info">i</button>
+              </div>
+              <div class="mini-meters"></div>
+            </div>
+            <div class="pet-card empty" data-pet-slot="2">
+              <div class="pet-visual">
+                <div class="pet-emoji" aria-label="pet">⬜️</div>
+                <img class="pet-image" alt="pet" />
+                <div class="name-hearts">
+                  <button class="pet-name-display">Empty</button>
+                  <div class="hearts-row"></div>
+                </div>
+                <div class="pet-side">
+                  <div class="status-tags"></div>
+                </div>
+                <div class="pet-particles"></div>
+                <button class="info-btn" aria-label="info">i</button>
+              </div>
+              <div class="mini-meters"></div>
+            </div>
+            <div class="pet-card empty" data-pet-slot="3">
+              <div class="pet-visual">
+                <div class="pet-emoji" aria-label="pet">⬜️</div>
+                <img class="pet-image" alt="pet" />
+                <div class="name-hearts">
+                  <button class="pet-name-display">Empty</button>
+                  <div class="hearts-row"></div>
+                </div>
+                <div class="pet-side">
+                  <div class="status-tags"></div>
+                </div>
+                <div class="pet-particles"></div>
+                <button class="info-btn" aria-label="info">i</button>
+              </div>
+              <div class="mini-meters"></div>
+            </div>
+            <div class="pet-card empty" data-pet-slot="4">
+              <div class="pet-visual">
+                <div class="pet-emoji" aria-label="pet">⬜️</div>
+                <img class="pet-image" alt="pet" />
+                <div class="name-hearts">
+                  <button class="pet-name-display">Empty</button>
+                  <div class="hearts-row"></div>
+                </div>
+                <div class="pet-side">
+                  <div class="status-tags"></div>
+                </div>
+                <div class="pet-particles"></div>
+                <button class="info-btn" aria-label="info">i</button>
+              </div>
+              <div class="mini-meters"></div>
+            </div>
+            <div class="pet-card empty" data-pet-slot="5">
+              <div class="pet-visual">
+                <div class="pet-emoji" aria-label="pet">⬜️</div>
+                <img class="pet-image" alt="pet" />
+                <div class="name-hearts">
+                  <button class="pet-name-display">Empty</button>
+                  <div class="hearts-row"></div>
+                </div>
+                <div class="pet-side">
+                  <div class="status-tags"></div>
+                </div>
+                <div class="pet-particles"></div>
+                <button class="info-btn" aria-label="info">i</button>
+              </div>
+              <div class="mini-meters"></div>
+            </div>
+            <div class="pet-card empty" data-pet-slot="6">
+              <div class="pet-visual">
+                <div class="pet-emoji" aria-label="pet">⬜️</div>
+                <img class="pet-image" alt="pet" />
+                <div class="name-hearts">
+                  <button class="pet-name-display">Empty</button>
+                  <div class="hearts-row"></div>
+                </div>
+                <div class="pet-side">
+                  <div class="status-tags"></div>
+                </div>
+                <div class="pet-particles"></div>
+                <button class="info-btn" aria-label="info">i</button>
+              </div>
+              <div class="mini-meters"></div>
+            </div>
+            <div class="pet-card empty" data-pet-slot="7">
+              <div class="pet-visual">
+                <div class="pet-emoji" aria-label="pet">⬜️</div>
+                <img class="pet-image" alt="pet" />
+                <div class="name-hearts">
+                  <button class="pet-name-display">Empty</button>
+                  <div class="hearts-row"></div>
+                </div>
+                <div class="pet-side">
+                  <div class="status-tags"></div>
+                </div>
+                <div class="pet-particles"></div>
+                <button class="info-btn" aria-label="info">i</button>
+              </div>
+              <div class="mini-meters"></div>
+            </div>
           </div>
         </section>
 
@@ -60,7 +165,10 @@
         </section>
 
         <section class="inventory-section card">
-          <h2>Inventory</h2>
+          <div class="inventory-header">
+            <h2>Inventory</h2>
+            <button id="breedingToggle" class="btn breeding-btn">Breed Pets</button>
+          </div>
           <div id="inventoryGrid" class="inventory-grid"></div>
         </section>
 
@@ -109,6 +217,10 @@
         <button id="debugAddBtn" class="btn">Add</button>
         <button id="debugAdd5Btn" class="btn">+5</button>
         <button id="debugGrantAllBtn" class="btn">All +5</button>
+      </div>
+      <div class="row buttons">
+        <button id="debugSaveBtn" class="btn subtle">Save</button>
+        <button id="debugResetBtn" class="btn danger">Reset</button>
       </div>
     </div>
   </body>

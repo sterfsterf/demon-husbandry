@@ -777,13 +777,14 @@ h1 {
   position: absolute;
   top: 12px;
   right: 12px;
-  width: 36px;
-  height: 36px;
+  width: 18px; /* was 36px */
+  height: 18px; /* was 36px */
   border-radius: 999px;
   border: 1px solid rgba(255,255,255,0.18);
   background: linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.06));
   color: #eee;
   font-weight: 800;
+  font-size: 10px; /* scale text */
   line-height: 1;
   display: grid;
   place-items: center;
@@ -948,7 +949,7 @@ h1 {
 /* Let drag events reach the card: big overlay ignores pointer events */
 .pet-card .pet-visual { pointer-events: none; }
 /* Keep interactive bits clickable */
-#petNameDisplay, .pet-card .info-btn, .pet-card .pet-side { pointer-events: auto; } 
+#petNameDisplay, .pet-card .pet-name-display, .pet-card .name-hearts, .pet-card .info-btn, .pet-card .pet-side { pointer-events: auto; } 
 
 /* Drag-over highlight for pet drop zones */
 .pet-card { transition: box-shadow 120ms ease, border-color 120ms ease, outline-color 120ms ease; }
@@ -1112,3 +1113,218 @@ h1 {
   100% { transform: translate(-50%, -50%) scale(2) rotate(0deg); }
 }
 .pet-card .pet-emoji.egg-state.egg-twitch { animation: egg-twitch 0.3s ease-in-out; } 
+
+/* Breeding system styles */
+.inventory-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.breeding-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
+.breeding-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.pet-card.breeding-mode {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.pet-card.breeding-mode:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(190, 138, 223, 0.3);
+}
+
+.pet-card.breeding-selected {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px rgba(190, 138, 223, 0.2);
+}
+
+.genetics-info {
+  font-size: 10px;
+  color: var(--muted);
+  margin: 4px 0;
+  font-style: italic;
+} 
+
+/* Pet name styling for all slots */
+.pet-name-display, #petNameDisplay {
+  position: static !important;
+  text-align: center;
+  white-space: nowrap;
+  font-size: clamp(20px, 4.5vw, 48px);
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: #B6D9DF;
+  font-weight: 800;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-family: 'Jaro', system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif;
+  letter-spacing: 1px;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.45);
+  -webkit-text-stroke: 1px rgba(255, 255, 255, 0.8);
+} 
+
+/* Final layout overrides - force stable pets grid + fixed inventory */
+:root { --inventory-h: 30vh; }
+
+/* Pin inventory to bottom */
+.inventory-section {
+  position: fixed !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  height: var(--inventory-h) !important;
+  z-index: 50 !important;
+  background: var(--panel) !important;
+}
+
+/* Pets scroll vertically above fixed inventory */
+.pets-section {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding-bottom: calc(var(--inventory-h) + 48px) !important;
+}
+
+/* Grid: non-stretching fixed-size cards */
+.pets-grid {
+  display: grid !important;
+  grid-auto-flow: row !important;
+  grid-template-columns: repeat(auto-fill, 350px) !important;
+  grid-template-rows: none !important; /* kill earlier 1fr rows causing the yawning void */
+  grid-auto-rows: 200px !important;
+  gap: 12px !important;
+  padding: 4px !important;
+  justify-content: start !important;
+  align-items: stretch !important;
+  justify-items: stretch !important;
+  align-content: start !important; /* prevent giant vertical gap */
+  width: 100% !important;
+}
+
+/* Card fixed box */
+.pets-grid > .pet-card {
+  width: 350px !important;
+  height: 200px !important;
+  min-width: 350px !important;
+  max-width: 350px !important;
+  min-height: 200px !important;
+  max-height: 200px !important;
+  position: relative !important;
+  overflow: hidden !important;
+  border-radius: 16px !important;
+} 
+
+/* Neutralize earlier conflicting pets-grid definitions */
+.pets-section .pets-grid { display: grid !important; }
+.pets-section .pets-grid { grid-auto-flow: row !important; }
+.pets-section .pets-grid { grid-template-columns: repeat(auto-fill, 350px) !important; }
+.pets-section .pets-grid { grid-auto-rows: 200px !important; }
+.pets-section .pets-grid { gap: 12px !important; padding: 4px !important; }
+.pets-section .pets-grid { justify-content: start !important; align-items: stretch !important; justify-items: stretch !important; align-content: start !important; } 
+
+/* Ensure full-viewport app and hidden outer scroll */
+html, body, #app, .layout { height: 100% !important; overflow: hidden !important; }
+
+/* Responsive pets grid: wrap cards, no horizontal cutoff */
+.pets-grid {
+  display: grid !important;
+  grid-auto-flow: row !important;
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)) !important;
+  grid-auto-rows: 200px !important;
+  gap: 12px !important;
+  padding: 4px !important;
+  justify-content: start !important;
+  align-content: start !important;
+}
+
+/* Cards fill column width, keep fixed height */
+.pets-grid > .pet-card {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  height: 200px !important;
+  min-height: 200px !important;
+  max-height: 200px !important;
+}
+
+/* Pets area scrolls vertically if more than 2 rows */
+.pets-section { overflow-y: auto !important; overflow-x: hidden !important; } 
+
+/* Inventory final sizing overrides */
+.inventory-section { 
+  display: grid !important; 
+  grid-template-rows: auto 1fr !important; 
+  padding: 8px 12px !important;
+  box-sizing: border-box !important;
+}
+.inventory-header { margin: 0 0 6px !important; }
+#inventoryGrid.inventory-grid { height: 100% !important; }
+.inventory-grid { 
+  display: flex !important; 
+  gap: 12px !important; 
+  overflow-x: auto !important; 
+  overflow-y: hidden !important; 
+  align-items: flex-start !important; 
+  padding: 0 2px 8px !important;
+}
+.inventory-card { 
+  flex: 0 0 150px !important; 
+  width: 150px !important; 
+  min-width: 150px !important; 
+  max-width: 150px !important; 
+  height: 140px !important; 
+  min-height: 140px !important; 
+  max-height: 140px !important; 
+  box-sizing: border-box !important; 
+}
+.inventory-card .emoji { font-size: 28px !important; }
+.inventory-card .bar { margin-top: 4px !important; } 
+
+#saveBtn, #resetBtn { display: none !important; } 
+
+/* Centered hint for empty pet cards */
+.pet-card .empty-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: rgba(255,255,255,0.5);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  pointer-events: none;
+} 
+
+/* Center the name on incubating egg cards */
+.pet-card.incubating .pet-name-display,
+.pet-card.incubating #petNameDisplay {
+  position: absolute !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  bottom: 16px !important;
+  text-align: center !important;
+  width: max-content;
+} 
+
+/* Center name group on incubating egg cards */
+.pet-card.incubating .name-hearts {
+  position: absolute !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  bottom: 16px !important;
+  display: inline-grid !important;
+  justify-items: center !important;
+  width: auto !important;
+} 
