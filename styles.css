@@ -1369,3 +1369,70 @@ html, body, #app, .layout { height: 100% !important; overflow: hidden !important
 }
 .pet-card .name-hearts #heartsRow,
 .pet-card .name-hearts .hearts-row { left: 50% !important; transform: translateX(-50%) !important; } 
+
+/* Durability flash overlay */
+.bar.mini { position: relative; }
+.bar.mini .durability-flash {
+  position: absolute;
+  top: 0; bottom: 0;
+  background: linear-gradient(180deg, rgba(255,170,0,0.95), rgba(255,120,0,0.9));
+  opacity: 0.9;
+  pointer-events: none;
+  z-index: 2;
+  animation: durability-flash-fade 260ms ease-out forwards;
+}
+@keyframes durability-flash-fade {
+  0% { opacity: 0.9; }
+  60% { opacity: 0.8; }
+  100% { opacity: 0; }
+} 
+
+/* Smooth durability bar lerp */
+.bar.mini .fill { transition: width 300ms ease-out; }
+
+/* Shake FX on inventory card */
+@keyframes item-shake {
+  0% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-2px); }
+  80% { transform: translateX(2px); }
+  100% { transform: translateX(0); }
+}
+.inventory-card.shake { animation: item-shake 220ms ease-in-out; }
+
+/* Spark particles on durability hit */
+.inventory-card .spark { position: absolute; width: 6px; height: 6px; border-radius: 50%; background: radial-gradient(circle, #ffd27a 0%, #ff9f1a 60%, #ff6600 100%); opacity: 0.95; pointer-events: none; filter: drop-shadow(0 0 4px rgba(255,150,0,0.8)); animation: spark-fly 320ms ease-out forwards; }
+@keyframes spark-fly {
+  0% { transform: translate(0,0) scale(1); opacity: 1; }
+  60% { opacity: 0.9; }
+  100% { transform: translate(var(--dx, 0), var(--dy, -30px)) scale(0.6); opacity: 0; }
+} 
+
+/* Inventory card large sprite */
+.inventory-card {
+  position: relative;
+  overflow: hidden;
+  padding-top: 70px; /* was 90px: move content up 20px */
+  text-align: center;
+}
+.inventory-card .top { display: none !important; }
+.inventory-card .title, .inventory-card .muted, .inventory-card .use-btn { position: relative; z-index: 2; }
+.inventory-card .muted { margin-top: -8px; color: #6d6079; }
+.inventory-card .bar { margin-top: -8px; }
+.inventory-card .use-btn { margin-top: 8px; }
+.inventory-card::before {
+  content: '';
+  position: absolute;
+  left: 50%; top: -30px; /* moved up 40px (was 36px) */
+  transform: translate(-50%, 0) scale(1); /* was 0.8 */
+  width: 80%; height: 80%;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  opacity: 0.95;
+}
+/* Map known items to sprites */
+.inventory-card[data-item-id="sponge"]::before { background-image: url('assets/pets/sponge.png'); }
+/* fallback: show big emoji if no sprite */
+.inventory-card .emoji { font-size: 48px !important; display: block !important; text-align: center; } 

@@ -16,6 +16,7 @@ export const ITEMS = [
     useType: 'play',
     effects: { happiness: 14, energy: -10, cleanliness: -4 },
     defaultCount: 2,
+    durability: { maxUses: 20, baseDamageChance: 0.22, rageThreshold: 55 },
   },
   {
     id: 'crystal_comb',
@@ -25,6 +26,7 @@ export const ITEMS = [
     useType: 'groom',
     effects: { cleanliness: 26, happiness: 4 },
     defaultCount: 4,
+    durability: { maxUses: 30, baseDamageChance: 0.1, rageThreshold: 65 },
   },
   {
     id: 'sponge',
@@ -34,6 +36,7 @@ export const ITEMS = [
     useType: 'groom',
     effects: { cleanliness: 16, happiness: 2 },
     defaultCount: 2,
+    durability: { maxUses: 8, baseDamageChance: 0.28, rageThreshold: 45 },
   },
   {
     id: 'mysterious_egg',

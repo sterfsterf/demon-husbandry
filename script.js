@@ -75,8 +75,8 @@ const defaultState = (petTypeId = PETS[0].id, traitIds = [TRAITS[0].id]) => {
     version: SAVE_VERSION,
     activePetId: 0,
     // Legacy mirrors (will be removed after full UI refactor)
-    petTypeId,
-    traitIds,
+        petTypeId,
+        traitIds,
     name: main.name,
     hunger: main.hunger,
     happiness: main.happiness,
@@ -545,20 +545,20 @@ function tick() {
     if ((pet.dirtiness || 0) > 70) happinessDecay += dirtyPenalty; 
     pet.happiness = clamp((pet.happiness || 0) - happinessDecay);
     
-    // rage dynamics
-    let rageDelta = 0; 
+  // rage dynamics
+  let rageDelta = 0; 
     if ((pet.hunger || 0) > 75) rageDelta += 3; 
     if ((pet.hunger || 0) > 90) rageDelta += 2; 
     if ((pet.dirtiness || 0) > 70) rageDelta += 2; 
     if ((pet.happiness || 0) < 30) rageDelta += 3; 
     if ((pet.energy || 0) < 20) rageDelta += 2; 
-    
-    // tiredness calms rage over time
+  
+  // tiredness calms rage over time
     if ((pet.energy || 0) <= 25) rageDelta -= 3; 
     if ((pet.energy || 0) <= 15) rageDelta -= 3; 
     if ((pet.energy || 0) <= 10) rageDelta -= 4; 
-    
-    // bonus calm when needs are satisfied
+  
+  // bonus calm when needs are satisfied
     if ((pet.dirtiness || 0) <= 25 && (pet.hunger || 0) < 40) rageDelta -= 2; 
     
     // gentle energy regeneration
@@ -754,17 +754,28 @@ function onUseItem(itemId, targetPetSlot = 0) {
   console.log(`Using ${item.label} on ${targetPet.name}: rage=${targetPet.rage}, damageChance=${damageChance.toFixed(3)}, roll=${roll.toFixed(3)}`);
   
   if (roll < damageChance) {
+    // Compute current percent BEFORE applying damage
+    const currentPct = getDurabilityPercent(itemId);
+    const lossFraction = 1 / Math.max(1, item.durability.maxUses);
+    const nextPct = Math.max(0, currentPct - lossFraction * 100);
+    // Ensure DOM exists for flashing
+    renderInventory();
+    flashDurabilityLoss(itemId, lossFraction);
+    // Apply damage
     const broke = damageItemInstance(itemId, instanceId);
     if (broke) {
       console.log(`${item.label} broke!`);
     } else {
       console.log(`${item.label} was damaged`);
     }
+    // Lerp bar after flash begins
+    setTimeout(() => { lerpDurabilityBar(itemId, nextPct); }, 120);
   } else {
     console.log(`${item.label} survived this use`);
+    // Ensure bar width syncs
+    lerpDurabilityBar(itemId, getDurabilityPercent(itemId));
   }
   
-  render(); 
   save(); 
   startParticleEffects(); // Update particles immediately after stat changes
 }
@@ -1105,7 +1116,7 @@ function renderAllPets() {
       }
       
       // Set pet name
-      if (nameEl) { 
+      if (nameEl) {
         nameEl.textContent = petData.name || 'Unnamed Pet'; 
         nameEl.style.display = 'block';
         autoshrinkNameButton(nameEl);
@@ -1770,8 +1781,73 @@ window.addEventListener('resize', () => {
   }
 });
 
+function flashDurabilityLoss(itemId, lossFraction = 0.05) {
+  try {
+    const card = document.querySelector(`.inventory-card[data-item-id="${itemId}"]`);
+    if (!card) return;
+    const bar = card.querySelector('.bar.mini');
+    const fill = card.querySelector('.bar.mini .fill');
+    if (!bar || !fill) return;
+    const currentWidth = parseFloat(fill.style.width || '0');
+    const flash = document.createElement('div');
+    flash.className = 'durability-flash';
+    const lossWidthPct = Math.max(0.5, lossFraction * 100);
+    flash.style.right = `${Math.max(0, 100 - currentWidth)}%`;
+    flash.style.width = `${lossWidthPct}%`;
+    bar.appendChild(flash);
+
+    // Shake the card
+    card.classList.add('shake');
+    setTimeout(() => card.classList.remove('shake'), 240);
+
+    // Spawn sparks near the end of the bar
+    const barRect = bar.getBoundingClientRect();
+    const endX = barRect.left + (currentWidth / 100) * barRect.width;
+    const endY = barRect.top + barRect.height / 2;
+    for (let i = 0; i < 5; i++) {
+      const s = document.createElement('div');
+      s.className = 'spark';
+      s.style.left = `${endX - card.getBoundingClientRect().left}px`;
+      s.style.top = `${endY - card.getBoundingClientRect().top}px`;
+      const dx = (Math.random() - 0.5) * 20; // -10..10
+      const dy = -10 - Math.random() * 10;   // upward
+      s.style.setProperty('--dx', `${dx}px`);
+      s.style.setProperty('--dy', `${dy}px`);
+      card.appendChild(s);
+      setTimeout(() => s.remove(), 380);
+    }
+
+    setTimeout(() => flash.remove(), 280);
+  } catch (_) {}
+}
+
+function getDurabilityPercent(itemId) {
+  try {
+    const item = getItemById(itemId);
+    if (!item?.durability) return 0;
+    const itMap = state.itemDurability?.[itemId] || {};
+    let currentUses = 0;
+    for (const uses of Object.values(itMap)) {
+      if (uses < item.durability.maxUses && uses > currentUses) currentUses = uses;
+    }
+    const remaining = item.durability.maxUses - currentUses;
+    return (remaining / item.durability.maxUses) * 100;
+  } catch (_) { return 0; }
+}
+
+function lerpDurabilityBar(itemId, nextPercent) {
+  try {
+    const card = document.querySelector(`.inventory-card[data-item-id="${itemId}"]`);
+    if (!card) return;
+    const fill = card.querySelector('.bar.mini .fill');
+    if (!fill) return;
+    // Set to next percent; CSS handles transition
+    fill.style.width = `${Math.max(0, Math.min(100, nextPercent))}%`;
+  } catch (_) {}
+}
+
 if (document.readyState === 'loading') {
-  window.addEventListener('DOMContentLoaded', init);
+window.addEventListener('DOMContentLoaded', init); 
 } else {
   init();
 }
