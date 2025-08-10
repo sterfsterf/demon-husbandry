@@ -85,7 +85,10 @@ h1 {
   min-height: 400px;
 }
 
+/* Ensure pet card is a positioning context and clips overflow */
 .pet-card {
+  position: relative;
+  overflow: hidden;
   display: grid;
   grid-template-rows: auto auto 1fr;
   gap: 12px;
@@ -95,6 +98,63 @@ h1 {
 .pet-card.empty {
   background: rgba(255,255,255,0.02);
   border: 1px dashed rgba(255,255,255,0.1);
+}
+
+.pet-card .pet-emoji {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  font-size: 36px;
+}
+
+/* Override mini meters position to mid-right */
+.pet-card .mini-meters {
+  top: 24%;
+  bottom: auto;
+  right: 14px;
+  width: 180px;
+}
+
+/* Per-meter colors for mini bars */
+.bar.mini.fullness .fill { --bar-color: var(--bar-fullness); }
+.bar.mini.cleanliness .fill { --bar-color: var(--bar-cleanliness); }
+.bar.mini.energy .fill { --bar-color: var(--bar-energy); }
+
+.bar.mini {
+  position: relative;
+  height: 6px;
+  background: var(--bar-bg);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.bar.mini .fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, rgba(255,255,255,0.2), rgba(255,255,255,0) 40%), var(--bar-color, var(--ok));
+}
+
+.bar.mini .value {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
+
+/* optional labels for clarity when needed */
+.meter-label {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  color: rgba(255,255,255,0.85);
 }
 
 .pet-visual {
@@ -353,39 +413,27 @@ h1 {
   padding: 6px;
 }
 
+/* Bottom-left: name + hearts as a stacked, centered group (name above hearts) */
 .name-hearts {
   position: absolute;
-  left: 6px;
-  bottom: -10px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: -22px;
+  left: 12px;
+  bottom: 10px;
+  display: inline-grid; /* width follows content (hearts) */
+  justify-items: center;
+  align-items: end;
+  gap: 6px;
 }
 
 #petNameDisplay {
-  position: relative;
-  left: 0;
-  bottom: 0;
-  margin-top: 0;
-  appearance: none;
-  background: transparent;
-  border: none;
-  color: #B6D9DF;
-  font-weight: 800;
-  padding: 2px 6px;
-  cursor: pointer;
-  font-family: 'Jaro', system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif;
-  font-size: clamp(28px, 6vw, 72px);
-  letter-spacing: 1px;
-  text-shadow: 0 2px 8px rgba(0,0,0,0.45);
-  -webkit-text-stroke: 1px rgba(255, 255, 255, 0.8);
+  position: static;
+  white-space: nowrap;
+  text-align: center;
+  /* start size; JS will shrink to fit when needed */
+  font-size: clamp(20px, 4.5vw, 60px);
 }
 
-.hearts-row {
-  position: relative;
-  left: 0;
-  bottom: 0;
+#heartsRow {
+  position: static;
   display: flex;
   gap: 6px;
 }
@@ -719,3 +767,176 @@ h1 {
 .rage-particle.animate {
   animation: rage-burst 0.6s ease-out forwards;
 } 
+
+/* Info button in top-right of pet cards */
+.pet-card .info-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.06));
+  color: #eee;
+  font-weight: 800;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.pet-card .info-btn:hover { border-color: rgba(255,255,255,0.28); }
+
+/* Center status tags vertically on the right side */
+.pet-card .pet-side {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+} 
+
+/* Hide colored mini bars in pet cards */
+.pet-card .mini-meters { display: none !important; }
+
+/* Anchor status tags tighter at bottom-right */
+.pet-card .pet-side {
+  position: absolute;
+  right: 10px;
+  bottom: 36px;
+  top: auto;
+  transform: none;
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+}
+
+/* Stack tags with tighter vertical gap */
+.pet-card .status-tags { display: grid !important; grid-auto-flow: row; gap: 4px; justify-items: end; }
+
+/* Compact tag padding for closer look */
+.pet-card .status-tag { padding: 4px 10px; }
+
+/* Anchor pet to the left side */
+.pet-card .pet-visual {
+  position: absolute;
+  inset: 0;
+}
+
+/* Ensure emoji fallback sits left-centered in card slots without image */
+.pet-card .pet-emoji {
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* Hearts and name bottom-left */
+#heartsRow {
+  position: absolute;
+  left: 12px;
+  transform: none;
+  bottom: 24px;
+}
+
+#petNameDisplay {
+  position: absolute;
+  left: 12px;
+  transform: none;
+  bottom: 48px;
+  margin-top: 0;
+  z-index: 2;
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: #B6D9DF;
+  font-weight: 800;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-family: 'Jaro', system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif;
+  font-size: clamp(24px, 5vw, 60px);
+  letter-spacing: 1px;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.45);
+  -webkit-text-stroke: 1px rgba(255, 255, 255, 0.8);
+} 
+
+/* Name smaller */
+#petNameDisplay {
+  font-size: clamp(20px, 4.5vw, 48px);
+}
+
+/* Hearts closer to the name */
+#heartsRow {
+  bottom: 34px;
+}
+
+/* Make sprite ~50% smaller inside pet card */
+.pet-card .pet-image {
+  height: 80% !important; /* was 68% */
+  top: calc(15% - 25px) !important; /* moved up another 10px */
+  bottom: auto !important;
+  left: 40px !important; /* was 20px */
+}
+
+/* Fallback emoji slightly larger to match sprite */
+.pet-card .pet-emoji {
+  font-size: 26px; /* was 22px */
+  left: 37px; /* was 32px */
+} 
+
+/* Name over hearts: center and constrain to hearts width with ellipsis */
+.name-hearts {
+  position: absolute;
+  left: 12px;
+  bottom: 0;
+  display: inline-block;
+}
+
+#heartsRow {
+  display: flex;
+  gap: 6px;
+}
+
+#petNameDisplay {
+  position: absolute;
+  bottom: 26px;
+  left: 0;
+  right: 0;
+  transform: none;
+  width: 100%;
+  max-width: 100%;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+} 
+
+/* Final overrides: name above hearts, centered; hearts not absolutely positioned */
+.name-hearts { display: inline-grid; justify-items: center; gap: 6px; }
+#petNameDisplay { position: static !important; left: auto !important; right: auto !important; bottom: auto !important; transform: none !important; width: auto; max-width: 100%; overflow: visible; text-overflow: clip; white-space: nowrap; text-align: center; }
+#heartsRow { position: static !important; left: auto !important; bottom: auto !important; transform: none !important; } 
+
+/* Ensure hearts render above sprite */
+#heartsRow { position: relative !important; z-index: 1; display: flex; gap: 6px; left: auto !important; bottom: auto !important; transform: none !important; } 
+
+/* Ensure name+hearts stack layers above sprite */
+.name-hearts { z-index: 2; }
+
+/* Force hearts row to render and align properly */
+#heartsRow { display: flex !important; gap: 6px; align-items: center; }
+.hearts-row .heart { font-size: 18px; } 
+
+/* Reliable name+hearts layout: absolute stack above bottom-left */
+.name-hearts {
+  position: absolute;
+  left: 12px;
+  bottom: 24px; /* lift row so it doesn't get clipped */
+  display: inline-grid;
+  justify-items: center;
+  gap: 6px;
+  z-index: 2;
+}
+
+#petNameDisplay { position: static !important; text-align: center; white-space: nowrap; }
+#heartsRow { position: static !important; display: flex !important; gap: 6px; } 

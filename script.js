@@ -3,7 +3,8 @@ import { TRAITS, getTraitById } from './config/traits.js';
 import { ITEMS, getItemById } from './config/items.js';
 import { STATUS_THRESHOLDS, STATUS_LABELS } from './config/status.js';
 
-const STORAGE_KEY = 'petto.save.v8';
+const STORAGE_KEY = 'demon-husbandry.save.v1';
+const LEGACY_STORAGE_KEYS = ['petto.save.v8'];
 
 const clamp = (value, min = 0, max = 100) => Math.max(min, Math.min(max, value));
 
@@ -22,7 +23,7 @@ const defaultState = (petTypeId = PETS[0].id, traitIds = [TRAITS[0].id]) => {
     // Main pet (slot 0)
     petTypeId,
     traitIds,
-    name: 'Petto',
+    name: 'Demon',
     hunger: 100 - s.fullness, // migrate to hunger scale
     happiness: s.happiness,
     dirtiness: 100 - s.cleanliness,
@@ -36,7 +37,7 @@ const defaultState = (petTypeId = PETS[0].id, traitIds = [TRAITS[0].id]) => {
       0: { // Main pet slot
         petTypeId,
         traitIds,
-        name: 'Petto',
+        name: 'Demon',
         hunger: 100 - s.fullness,
         happiness: s.happiness,
         dirtiness: 100 - s.cleanliness,
@@ -89,7 +90,19 @@ let state = load() || defaultState();
 
 function load() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    let raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      for (const legacyKey of LEGACY_STORAGE_KEYS) {
+        const legacyRaw = localStorage.getItem(legacyKey);
+        if (legacyRaw) {
+          raw = legacyRaw;
+          // Migrate to new key and clear legacy
+          try { localStorage.setItem(STORAGE_KEY, legacyRaw); } catch {}
+          try { localStorage.removeItem(legacyKey); } catch {}
+          break;
+        }
+      }
+    }
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     const petId = parsed.petTypeId && getPetById(parsed.petTypeId) ? parsed.petTypeId : PETS[0].id;
@@ -116,7 +129,7 @@ function load() {
 
 function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 
-function resetAll() { state = defaultState(state.petTypeId, state.traitIds); localStorage.removeItem(STORAGE_KEY); render(); }
+function resetAll() { state = defaultState(state.petTypeId, state.traitIds); localStorage.removeItem(STORAGE_KEY); for (const k of LEGACY_STORAGE_KEYS) try { localStorage.removeItem(k); } catch {} render(); }
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -124,7 +137,7 @@ const $ = (sel) => document.querySelector(sel);
 const el = {
   petEmoji: $('#petEmoji'),
   petImage: $('#petImage'),
-  petMood: $('#petMood'),
+  // petMood removed from UI
   barFullness: $('#barFullness'),
   barCleanliness: $('#barCleanliness'),
   barEnergy: $('#barEnergy'),
@@ -143,8 +156,6 @@ const el = {
   saveBtn: $('#saveBtn'),
   resetBtn: $('#resetBtn'),
   tickInfo: $('#tickInfo'),
-  petName: $('#petName') || null,
-  saveNameBtn: $('#saveNameBtn') || null,
   petTypeSelect: document.getElementById('petTypeSelect') || null,
   traitSelect: document.getElementById('traitSelect') || null,
   heartsCount: $('#heartsCount'),
@@ -215,15 +226,13 @@ function bindEvents() {
   if (el.playBtn) el.playBtn.addEventListener('click', onPlay);
   el.saveBtn.addEventListener('click', save);
   el.resetBtn.addEventListener('click', resetAll);
-  if (el.saveNameBtn) el.saveNameBtn.addEventListener('click', onRename);
-  if (el.petName) el.petName.value = state.name || '';
   if (el.petTypeSelect) el.petTypeSelect.addEventListener('change', onChangePetType);
   if (el.traitSelect) el.traitSelect.addEventListener('change', onChangeTraits);
 }
 
 function onChangePetType() { const nextId = el.petTypeSelect.value; if (!getPetById(nextId)) return; const keepName = state.name; const keepTraits = state.traitIds; const keepInv = state.inventory; state = defaultState(nextId, keepTraits); state.name = keepName; state.inventory = keepInv; render(); save(); }
 function onChangeTraits() { const selected = Array.from(el.traitSelect.selectedOptions).map((o) => o.value); const filtered = selected.filter((id) => getTraitById(id)).slice(0, 3); state.traitIds = filtered; save(); }
-function onRename() { const name = (el.petName.value || '').trim().slice(0, 20); state.name = name || 'Petto'; render(); }
+// header rename removed; renaming is handled by modal in initRenameModal()
 
 function multFromTraits(key) { return activeTraits().reduce((acc, t) => acc * (t?.modifiers?.[key] ?? 1), 1); }
 
@@ -583,6 +592,19 @@ function renderStatusTags() {
 
 let particleIntervals = {};
 
+// Compute the visual center of the sprite within the particle container, offset up 20px
+function getSpriteCenterOffset() {
+  const container = document.getElementById('petParticles');
+  const img = el.petImage;
+  if (!container) return { x: 0, y: 0 };
+  const cr = container.getBoundingClientRect();
+  if (!img) return { x: cr.width / 2, y: Math.max(0, cr.height / 2 - 20) };
+  const ir = img.getBoundingClientRect();
+  const centerX = (ir.left - cr.left) + (ir.width / 2);
+  const centerY = (ir.top - cr.top) + (ir.height / 2) - 20;
+  return { x: centerX, y: centerY };
+}
+
 function startParticleEffects() {
   stopParticleEffects(); // Clear existing intervals
   
@@ -626,13 +648,17 @@ function createSweatParticle() {
   console.log('Creating sweat particle, container found:', !!container);
   if (!container) return;
   
+  const origin = getSpriteCenterOffset();
+  
   const particle = document.createElement('div');
   const isFilthy = (state.cleanliness || 0) <= 15;
   particle.className = isFilthy ? 'sweat-particle animate chaotic' : 'sweat-particle animate';
   
-  // Start from center area of sprite, moved up 20px
-  particle.style.left = Math.random() * 40 + 30 + '%';
-  particle.style.top = Math.random() * 40 + 10 + '%'; // was 30%, now 10%
+  // Emit from sprite center with a tiny jitter
+  const jitterX = (Math.random() - 0.5) * 12;
+  const jitterY = (Math.random() - 0.5) * 8;
+  particle.style.left = `${origin.x + jitterX}px`;
+  particle.style.top = `${origin.y + jitterY}px`;
   
   // Set random direction and rotation for outward emission
   const angle = Math.random() * Math.PI * 2; // Random angle in radians
@@ -662,12 +688,16 @@ function createSparkleParticle() {
   console.log('Creating sparkle particle, container found:', !!container);
   if (!container) return;
   
+  const origin = getSpriteCenterOffset();
+  
   const particle = document.createElement('div');
   particle.className = 'sparkle-particle animate';
   
-  // Random position around the sprite area, moved up 20px
-  particle.style.left = Math.random() * 80 + 10 + '%';
-  particle.style.top = Math.random() * 60 + 10 + '%'; // was 10% + 80%, now 10% + 60%
+  // Start near sprite center with tiny jitter
+  const jitterX = (Math.random() - 0.5) * 10;
+  const jitterY = (Math.random() - 0.5) * 6;
+  particle.style.left = `${origin.x + jitterX}px`;
+  particle.style.top = `${origin.y + jitterY}px`;
   
   container.appendChild(particle);
   console.log('Sparkle particle added to container');
@@ -685,12 +715,16 @@ function createRageParticle() {
   console.log('Creating rage particle, container found:', !!container);
   if (!container) return;
   
+  const origin = getSpriteCenterOffset();
+  
   const particle = document.createElement('div');
   particle.className = 'rage-particle animate';
   
-  // Start from center area of sprite, moved up 20px
-  particle.style.left = Math.random() * 40 + 30 + '%';
-  particle.style.top = Math.random() * 40 + 10 + '%'; // was 30%, now 10%
+  // Emit from center with tiny jitter
+  const jitterX = (Math.random() - 0.5) * 10;
+  const jitterY = (Math.random() - 0.5) * 6;
+  particle.style.left = `${origin.x + jitterX}px`;
+  particle.style.top = `${origin.y + jitterY}px`;
   
   // Add size variation for more chaos
   const sizeMultiplier = 0.8 + Math.random() * 0.6; // 0.8x to 1.4x size
@@ -726,10 +760,15 @@ function renderAllPets() {
     const slotId = parseInt(petCard.getAttribute('data-pet-slot'));
     const petData = state.pets?.[slotId];
     
+    const emojiEl = petCard.querySelector('.pet-emoji');
+    const miniWrap = petCard.querySelector('.mini-meters') || (() => { const d = document.createElement('div'); d.className = 'mini-meters'; petCard.appendChild(d); return d; })();
+    
     if (!petData) {
       // Empty slot
       petCard.classList.remove('incubating');
       petCard.classList.add('empty');
+      miniWrap.innerHTML = '';
+      if (emojiEl) emojiEl.textContent = '⬜️';
       continue;
     }
     
@@ -737,49 +776,68 @@ function renderAllPets() {
       // Incubating egg
       petCard.classList.add('incubating');
       petCard.classList.remove('empty');
-      
       const eggItem = getItemById(petData.eggItemId);
-      const emojiEl = petCard.querySelector('.pet-emoji');
-      if (emojiEl) {
-        emojiEl.textContent = eggItem ? eggItem.emoji : '🥚';
-      }
+      if (emojiEl) emojiEl.textContent = eggItem ? eggItem.emoji : '🥚';
+      miniWrap.innerHTML = '';
+      continue;
+    }
+    
+    if (petData.type === 'pet') {
+      petCard.classList.remove('incubating', 'empty');
+      // Set emoji for the pet slot (not the main stage emoji)
+      if (emojiEl) emojiEl.textContent = getEmoji(petData);
       
-      const nameEl = petCard.querySelector('.pet-name-display');
-      if (nameEl) {
-        nameEl.style.display = 'none';
-      }
+      const fullness = clamp(100 - (petData.hunger ?? 50));
+      const cleanliness = clamp(100 - (petData.dirtiness ?? 50));
+      const energy = clamp(petData.energy ?? 0);
       
-      // Hide status tags and hearts for incubating eggs
-      const statusEl = petCard.querySelector('.status-tags');
-      const heartsEl = petCard.querySelector('.hearts-row');
-      if (statusEl) statusEl.style.display = 'none';
-      if (heartsEl) heartsEl.style.display = 'none';
-      
-    } else if (petData.type === 'pet') {
-      // Active pet - for now only render main pet (slot 0)
-      if (slotId === 0) {
-        petCard.classList.remove('incubating', 'empty');
-        // Main pet rendering is handled by existing render() function
-      }
+      miniWrap.innerHTML = `
+        <div class="bar mini fullness" aria-label="Fullness"><div class="fill" style="width:${fullness}%"></div><span class="value">${Math.round(fullness)}</span></div>
+        <div class="bar mini cleanliness" aria-label="Cleanliness"><div class="fill" style="width:${cleanliness}%"></div><span class="value">${Math.round(cleanliness)}</span></div>
+        <div class="bar mini energy" aria-label="Energy"><div class="fill" style="width:${energy}%"></div><span class="value">${Math.round(energy)}</span></div>
+      `;
+
+      // Main pet rendering is handled by existing render() function
+      // for slot 0 we still show mini meters here, too
     }
   }
 }
 
 function render() {
-  el.petEmoji.textContent = getEmoji(state);
+  if (el.petEmoji) el.petEmoji.textContent = getEmoji(state);
   setPetArt();
-  setBar(el.barFullness, el.numFullness, 100 - state.hunger); // show "fullness"
-  setBar(el.barCleanliness, el.numCleanliness, 100 - state.dirtiness); // show cleanliness
-  setBar(el.barEnergy, el.numEnergy, state.energy);
-  if (el.barRage) setBar(el.barRage, el.numRage, state.rage);
+  if (el.barFullness && el.numFullness) setBar(el.barFullness, el.numFullness, 100 - state.hunger); // show "fullness"
+  if (el.barCleanliness && el.numCleanliness) setBar(el.barCleanliness, el.numCleanliness, 100 - state.dirtiness); // show cleanliness
+  if (el.barEnergy && el.numEnergy) setBar(el.barEnergy, el.numEnergy, state.energy);
+  if (el.barRage && el.numRage) setBar(el.barRage, el.numRage, state.rage);
   renderStatusTags();
   renderHearts();
   renderInventory();
   renderAllPets();
   startParticleEffects();
   const nameBtn = document.getElementById('petNameDisplay');
-  if (nameBtn) nameBtn.textContent = state.name || 'Petto';
-  el.tickInfo.textContent = `Tick: ${state.tick}`;
+  if (nameBtn) {
+    nameBtn.textContent = state.name || 'Demon';
+    // autoshrink to fit hearts width
+    const container = nameBtn.closest('.name-hearts');
+    if (container) {
+      const maxFont = 60;
+      const minFont = 16;
+      let font = maxFont;
+      nameBtn.style.fontSize = font + 'px';
+      nameBtn.style.lineHeight = '1';
+      nameBtn.style.whiteSpace = 'nowrap';
+      const maxWidth = container.offsetWidth;
+      // Prevent infinite loop if zero width
+      if (maxWidth > 0) {
+        while (nameBtn.scrollWidth > maxWidth && font > minFont) {
+          font -= 1;
+          nameBtn.style.fontSize = font + 'px';
+        }
+      }
+    }
+  }
+  if (el.tickInfo) el.tickInfo.textContent = `Tick: ${state.tick}`;
 }
 
 function setBar(barEl, numEl, value) { const pct = clamp(value); barEl.style.width = `${pct}%`; numEl.textContent = Math.round(pct); }
@@ -922,7 +980,7 @@ function initRenameModal() {
   const close = () => modal.classList.add('hidden');
   const doSave = () => {
     const name = (input.value || '').trim().slice(0, 20);
-    state.name = name || 'Petto';
+    state.name = name || 'Demon';
     save();
     render();
     close();
@@ -1045,4 +1103,8 @@ function hatchEgg(petSlot) {
   render();
 }
 
-window.addEventListener('DOMContentLoaded', init); 
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Petto – Simple Pet Simulator</title>
+    <title>Demon Husbandry – Simple Pet Simulator</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
@@ -12,42 +12,36 @@
   <body>
     <div id="app">
       <header class="app-header">
-        <h1>Petto</h1>
-        <div class="pet-name-editor">
-          <label for="petName">Name</label>
-          <input id="petName" type="text" maxlength="20" placeholder="Your pet's name" />
-          <button id="saveNameBtn" class="btn">Rename</button>
-        </div>
+        <h1>Demon Husbandry</h1>
       </header>
 
       <main class="layout">
-        <section class="pet-stage card">
-          <div class="pet-visual">
-            <div id="petEmoji" class="pet-emoji" aria-label="pet">😺</div>
-            <div id="petMood" class="pet-mood">Chillin'</div>
+        <section class="pets-section card">
+          <div class="pets-grid">
+            <div class="pet-card" data-pet-slot="0">
+              <div class="pet-visual">
+                <div id="petEmoji" class="pet-emoji" aria-label="pet">😺</div>
+                <img id="petImage" class="pet-image" alt="pet" />
+                <div class="name-hearts">
+                  <button id="petNameDisplay">Demon</button>
+                  <div id="heartsRow" class="hearts-row"></div>
+                </div>
+                <div class="pet-side">
+                  <div id="statusTags" class="status-tags"></div>
+                </div>
+                <div id="petParticles" class="pet-particles"></div>
+                <button class="info-btn" aria-label="info">i</button>
+              </div>
+              <div class="mini-meters"></div>
+            </div>
+            <div class="pet-card empty" data-pet-slot="1"><div class="pet-emoji">⬜️</div></div>
+            <div class="pet-card empty" data-pet-slot="2"><div class="pet-emoji">⬜️</div></div>
+            <div class="pet-card empty" data-pet-slot="3"><div class="pet-emoji">⬜️</div></div>
+            <div class="pet-card empty" data-pet-slot="4"><div class="pet-emoji">⬜️</div></div>
+            <div class="pet-card empty" data-pet-slot="5"><div class="pet-emoji">⬜️</div></div>
+            <div class="pet-card empty" data-pet-slot="6"><div class="pet-emoji">⬜️</div></div>
+            <div class="pet-card empty" data-pet-slot="7"><div class="pet-emoji">⬜️</div></div>
           </div>
-          <ul class="stats" aria-label="pet stats">
-            <li>
-              <span>Fullness</span>
-              <div class="bar"><div id="barFullness" class="fill"></div></div>
-              <span id="numFullness" class="num">0</span>
-            </li>
-            <li>
-              <span>Happiness</span>
-              <div class="bar"><div id="barHappiness" class="fill"></div></div>
-              <span id="numHappiness" class="num">0</span>
-            </li>
-            <li>
-              <span>Cleanliness</span>
-              <div class="bar"><div id="barCleanliness" class="fill"></div></div>
-              <span id="numCleanliness" class="num">0</span>
-            </li>
-            <li>
-              <span>Energy</span>
-              <div class="bar"><div id="barEnergy" class="fill"></div></div>
-              <span id="numEnergy" class="num">0</span>
-            </li>
-          </ul>
         </section>
 
         <section class="actions card">
@@ -62,6 +56,11 @@
             <select id="toySelect" class="select"></select>
             <button id="playBtn" class="btn">Play</button>
           </div>
+        </section>
+
+        <section class="inventory-section card">
+          <h2>Inventory</h2>
+          <div id="inventoryGrid" class="inventory-grid"></div>
         </section>
 
         <section class="log card">
@@ -82,5 +81,16 @@
     </div>
 
     <script src="./script.js" type="module"></script>
+
+    <div id="renameModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="renameTitle">
+      <div class="modal-content">
+        <h3 id="renameTitle" class="sr-only">Rename Pet</h3>
+        <input id="renameInput" type="text" maxlength="20" placeholder="New name" />
+        <div class="modal-actions">
+          <button id="renameSave" class="btn">Save</button>
+          <button id="renameCancel" class="btn subtle">Cancel</button>
+        </div>
+      </div>
+    </div>
   </body>
 </html> 
