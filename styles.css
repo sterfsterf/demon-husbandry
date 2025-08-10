@@ -4,9 +4,9 @@
   --panel-2: #161a21;
   --text: #e7ecf3;
   --muted: #9aa6b2;
-  --accent: #7c5cff;
+  --accent: #BE8ADF;
   --danger: #ff477e;
-  --ok: #24d07a;
+  --ok: #36d2b3;
   --bar-bg: #232936;
   --bar-fullness: #ffb020;
   --bar-happiness: #ff6b9e;
@@ -26,7 +26,7 @@ html, body {
 
 body {
   margin: 0;
-  background: radial-gradient(1200px 800px at 20% -10%, #141827 0%, #0b0d10 55%);
+  background: linear-gradient(180deg, #1f2340 0%, #24193f 45%, #0f1320 70%, #0b0d10 100%);
   color: var(--text);
   font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Apple Color Emoji', 'Segoe UI Emoji';
 }
@@ -82,7 +82,6 @@ h1 {
   grid-template-columns: repeat(4, 1fr);
   grid-template-rows: repeat(2, 1fr);
   gap: 12px;
-  min-height: 400px;
 }
 
 /* Ensure pet card is a positioning context and clips overflow */
@@ -93,6 +92,9 @@ h1 {
   grid-template-rows: auto auto 1fr;
   gap: 12px;
   min-height: 180px;
+  max-height: 180px;
+  min-width: 400px;
+  max-width: 400px;
 }
 
 .pet-card.empty {
@@ -940,3 +942,74 @@ h1 {
 
 #petNameDisplay { position: static !important; text-align: center; white-space: nowrap; }
 #heartsRow { position: static !important; display: flex !important; gap: 6px; } 
+
+/* Let drag events reach the card: big overlay ignores pointer events */
+.pet-card .pet-visual { pointer-events: none; }
+/* Keep interactive bits clickable */
+#petNameDisplay, .pet-card .info-btn, .pet-card .pet-side { pointer-events: auto; } 
+
+/* Drag-over highlight for pet drop zones */
+.pet-card { transition: box-shadow 120ms ease, border-color 120ms ease, outline-color 120ms ease; }
+.pet-card.drag-over { outline: 2px dashed rgba(190, 138, 223, 0.8); outline-offset: 2px; box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.25), inset 0 0 0 2px rgba(124, 92, 255, 0.15); } 
+
+/* Make pets container invisible */
+.pets-section.card { background: transparent !important; border: none !important; box-shadow: none !important; padding: 0 !important; }
+
+/* Round corners of each pet card */
+.pet-card { border-radius: 16px; } 
+
+/* Typography: use Jaro for brand title and pet name */
+.app-header h1 { font-family: 'Jaro', system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif; letter-spacing: 1px; color: #BC8CDF; }
+#petNameDisplay { font-family: 'Jaro', system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif; } 
+
+/* Layout: pets scroll area + actions + inventory bottom 1/3 */
+.layout {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: minmax(0, 1fr) auto minmax(0, 33vh);
+  gap: 16px;
+}
+
+/* Pets section: scrollable, responsive grid */
+.pets-section {
+  overflow: auto;
+  scrollbar-gutter: stable both-edges;
+}
+.pets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  grid-auto-rows: minmax(160px, auto);
+  gap: 12px;
+  padding: 4px;
+}
+
+/* Pets grid: prevent horizontal overlap */
+.pets-grid { width: 100%; grid-auto-flow: row; align-items: stretch; justify-items: stretch; }
+.pets-grid > .pet-card { min-width: 0; }
+
+/* Inventory pinned to bottom third; horizontal scroll */
+.inventory-section {
+  height: 33vh;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+.inventory-section h2 { margin: 0 0 8px; }
+.inventory-grid {
+  display: flex !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+  gap: 12px;
+  padding: 4px 4px 12px;
+  scroll-snap-type: x proximity;
+}
+.inventory-card {
+  flex: 0 0 140px;
+  min-width: 140px;
+  scroll-snap-align: start;
+} 
+
+/* Fixed pet card sizing and grid tracks */
+.pets-grid { grid-template-columns: repeat(auto-fill, 350px) !important; grid-auto-rows: 200px !important; justify-content: start; }
+.pets-grid > .pet-card { width: 350px !important; height: 200px !important; min-width: 350px !important; max-width: 350px !important; min-height: 200px !important; max-height: 200px !important; } 

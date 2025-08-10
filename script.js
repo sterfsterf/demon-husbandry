@@ -598,10 +598,10 @@ function getSpriteCenterOffset() {
   const img = el.petImage;
   if (!container) return { x: 0, y: 0 };
   const cr = container.getBoundingClientRect();
-  if (!img) return { x: cr.width / 2, y: Math.max(0, cr.height / 2 - 20) };
+  if (!img) return { x: cr.width / 2, y: Math.max(0, cr.height / 2 - 40) };
   const ir = img.getBoundingClientRect();
   const centerX = (ir.left - cr.left) + (ir.width / 2);
-  const centerY = (ir.top - cr.top) + (ir.height / 2) - 20;
+  const centerY = (ir.top - cr.top) + (ir.height / 2) - 40;
   return { x: centerX, y: centerY };
 }
 
