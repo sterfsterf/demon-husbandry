@@ -1092,6 +1092,7 @@ function renderAllPets() {
           imageEl.classList.add('show');
           applyRageAnimationToPet(imageEl, petData); // Apply animations when sprite loads
           setEmojiVisibilityForCard(emojiEl, imageEl);
+          centerNameHeartsForCard(petCard);
         };
         imageEl.onerror = () => { imageEl.classList.remove('show'); setEmojiVisibilityForCard(emojiEl, imageEl); };
         // If already shown, just update animation
@@ -1099,6 +1100,7 @@ function renderAllPets() {
           // Sprite already loaded, just update animation
           applyRageAnimationToPet(imageEl, petData);
           setEmojiVisibilityForCard(emojiEl, imageEl);
+          centerNameHeartsForCard(petCard);
         }
       }
       
@@ -1106,6 +1108,7 @@ function renderAllPets() {
       if (nameEl) { 
         nameEl.textContent = petData.name || 'Unnamed Pet'; 
         nameEl.style.display = 'block';
+        autoshrinkNameButton(nameEl);
       }
       
       // Render hearts
@@ -1150,6 +1153,8 @@ function renderAllPets() {
       `;
     }
   }
+  // pass 2: ensure centering after all images might have loaded
+  for (const petCard of document.querySelectorAll('.pet-card[data-pet-slot]')) centerNameHeartsForCard(petCard);
 }
 
 function render() {
@@ -1170,23 +1175,7 @@ function render() {
   if (nameBtn) {
     nameBtn.textContent = getMainPet().name || 'Demon';
     // autoshrink to fit hearts width
-    const container = nameBtn.closest('.name-hearts');
-    if (container) {
-      const maxFont = 60;
-      const minFont = 16;
-      let font = maxFont;
-      nameBtn.style.fontSize = font + 'px';
-      nameBtn.style.lineHeight = '1';
-      nameBtn.style.whiteSpace = 'nowrap';
-      const maxWidth = container.offsetWidth;
-      // Prevent infinite loop if zero width
-      if (maxWidth > 0) {
-        while (nameBtn.scrollWidth > maxWidth && font > minFont) {
-          font -= 1;
-          nameBtn.style.fontSize = font + 'px';
-        }
-      }
-    }
+    autoshrinkNameButton(nameBtn);
   }
   if (el.tickInfo) el.tickInfo.textContent = `Tick: ${state.tick}`;
 }
@@ -1355,7 +1344,7 @@ function hatchEgg(petSlot) {
     const pet = {
       petTypeId,
       traitIds,
-      name: `Baby ${petConfig.label}`,
+      name: `${petConfig.label}`,
       hunger: 100 - s.fullness,
       happiness: s.happiness,
       dirtiness: 100 - s.cleanliness,
@@ -1401,7 +1390,7 @@ function hatchEgg(petSlot) {
     type: 'pet',
     petTypeId,
     traitIds,
-    name: `Baby ${petConfig.label}`,
+    name: `${petConfig.label}`,
     hunger: 100 - s.fullness, // Use hunger scale
     happiness: s.happiness,
     dirtiness: 100 - s.cleanliness, // Use dirtiness scale
@@ -1739,6 +1728,47 @@ function playEggTwitch(petSlot) {
   eggElement.classList.add('egg-twitch');
   setTimeout(() => eggElement.classList.remove('egg-twitch'), 300);
 }
+
+function autoshrinkNameButton(nameBtn) {
+  if (!nameBtn) return;
+  const container = nameBtn.closest('.name-hearts');
+  if (!container) return;
+  const maxFont = 42; // lowered max font size
+  const minFont = 16;
+  let font = maxFont;
+  nameBtn.style.fontSize = font + 'px';
+  nameBtn.style.lineHeight = '1';
+  nameBtn.style.whiteSpace = 'nowrap';
+  const maxWidth = container.offsetWidth;
+  if (maxWidth > 0) {
+    while (nameBtn.scrollWidth > maxWidth && font > minFont) {
+      font -= 1;
+      nameBtn.style.fontSize = font + 'px';
+    }
+  }
+}
+
+function centerNameHeartsForCard(petCard) {
+  if (!petCard) return;
+  const group = petCard.querySelector('.name-hearts');
+  const img = petCard.querySelector('.pet-image');
+  if (!group || !img || !img.classList.contains('show')) return;
+  const cr = petCard.getBoundingClientRect();
+  const ir = img.getBoundingClientRect();
+  const leftEdge = (ir.left - cr.left);
+  const spriteWidth = ir.width;
+  const shrink = 0; // no container shrink; use smaller name font instead
+  group.style.left = `${Math.max(0, leftEdge + shrink / 2)}px`;
+  group.style.width = `${Math.max(0, spriteWidth - shrink)}px`;
+  group.style.transform = 'none';
+}
+
+// Recenter on window resize
+window.addEventListener('resize', () => {
+  for (const petCard of document.querySelectorAll('.pet-card[data-pet-slot]')) {
+    centerNameHeartsForCard(petCard);
+  }
+});
 
 if (document.readyState === 'loading') {
   window.addEventListener('DOMContentLoaded', init);

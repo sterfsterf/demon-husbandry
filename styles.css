@@ -1328,3 +1328,44 @@ html, body, #app, .layout { height: 100% !important; overflow: hidden !important
   justify-items: center !important;
   width: auto !important;
 } 
+
+/* Fixed name/hearts layout: hearts pinned, name shrinks within container */
+.pet-card .name-hearts {
+  position: absolute !important;
+  left: 12px !important;
+  bottom: 24px !important;
+  width: 260px !important; /* shrink target width */
+  height: 56px !important; /* room for name above hearts */
+  display: block !important;
+  pointer-events: none; /* children re-enable */
+}
+.pet-card .name-hearts #petNameDisplay,
+.pet-card .name-hearts .pet-name-display {
+  position: absolute !important;
+  left: 0 !important;
+  bottom: 30px !important;
+  transform: none !important;
+  max-width: 100% !important;
+  text-align: left !important;
+  pointer-events: auto;
+}
+.pet-card .name-hearts #heartsRow,
+.pet-card .name-hearts .hearts-row {
+  position: absolute !important;
+  left: 0 !important;
+  bottom: 0 !important;
+  display: flex !important;
+  gap: 2px !important;
+  pointer-events: auto;
+} 
+
+/* Name+hearts within sprite box */
+.pet-card .name-hearts { text-align: center !important; }
+.pet-card .name-hearts #petNameDisplay,
+.pet-card .name-hearts .pet-name-display {
+  left: 0 !important;
+  width: 100% !important;
+  text-align: center !important;
+}
+.pet-card .name-hearts #heartsRow,
+.pet-card .name-hearts .hearts-row { left: 50% !important; transform: translateX(-50%) !important; } 
