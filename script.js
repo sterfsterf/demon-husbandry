@@ -792,7 +792,7 @@ function renderAllPets() {
       petCard.classList.remove('incubating');
       petCard.classList.add('empty');
       miniWrap.innerHTML = '';
-      if (emojiEl) emojiEl.textContent = '⬜️';
+      if (emojiEl) { emojiEl.classList.remove('egg-state'); emojiEl.style.backgroundImage = ''; emojiEl.textContent = '⬜️'; }
       continue;
     }
     
@@ -800,8 +800,12 @@ function renderAllPets() {
       // Incubating egg
       petCard.classList.add('incubating');
       petCard.classList.remove('empty');
-      const eggItem = getItemById(petData.eggItemId);
-      if (emojiEl) emojiEl.textContent = eggItem ? eggItem.emoji : '🥚';
+      // Show egg sprite
+      if (emojiEl) {
+        emojiEl.classList.add('egg-state');
+        emojiEl.style.backgroundImage = "url('assets/pets/egg.png')";
+        emojiEl.textContent = '';
+      }
       miniWrap.innerHTML = '';
       continue;
     }
@@ -809,7 +813,7 @@ function renderAllPets() {
     if (petData.type === 'pet') {
       petCard.classList.remove('incubating', 'empty');
       // Set emoji for the pet slot (not the main stage emoji)
-      if (emojiEl) emojiEl.textContent = getEmoji(petData);
+      if (emojiEl) { emojiEl.classList.remove('egg-state'); emojiEl.style.backgroundImage = ''; emojiEl.textContent = getEmoji(petData); }
       
       const fullness = clamp(100 - (petData.hunger ?? 50));
       const cleanliness = clamp(100 - (petData.dirtiness ?? 50));
@@ -820,7 +824,7 @@ function renderAllPets() {
         <div class="bar mini cleanliness" aria-label="Cleanliness"><div class="fill" style="width:${cleanliness}%"></div><span class="value">${Math.round(cleanliness)}</span></div>
         <div class="bar mini energy" aria-label="Energy"><div class="fill" style="width:${energy}%"></div><span class="value">${Math.round(energy)}</span></div>
       `;
-
+      
       // Main pet rendering is handled by existing render() function
       // for slot 0 we still show mini meters here, too
     }
@@ -1025,7 +1029,12 @@ function startEggIncubation(eggItemId, petSlot) {
   if (!eggItem || !eggItem.eggData) return false;
   
   const now = Date.now();
-  const hatchTime = now + (eggItem.eggData.hatchTimeMinutes * 60 * 1000);
+  // Per-egg hatch variance
+  const baseMinutes = eggItem.eggData.hatchTimeMinutes;
+  const jitterMin = eggItem.eggData.hatchJitterMin ?? 0.7;
+  const jitterMax = eggItem.eggData.hatchJitterMax ?? 1.5;
+  const jitterFactor = jitterMin + Math.random() * (jitterMax - jitterMin);
+  const hatchTime = now + Math.round(baseMinutes * 60 * 1000 * jitterFactor);
   
   // Create incubating egg data
   state.incubatingEggs[petSlot] = {
@@ -1033,7 +1042,10 @@ function startEggIncubation(eggItemId, petSlot) {
     startTime: now,
     hatchTime,
     lastTwitchTime: now,
-    nextTwitchInterval: eggItem.eggData.twitchIntervalBase
+    nextTwitchInterval: eggItem.eggData.twitchIntervalBase,
+    // Independent randomized next twitch time so eggs don't sync
+    nextTwitchAt: now + Math.round(eggItem.eggData.twitchIntervalBase * (0.6 + Math.random() * 0.8)),
+    jitterFactor,
   };
   
   // Mark pet slot as incubating
@@ -1061,16 +1073,25 @@ function updateEggIncubation() {
       continue;
     }
     
+    // Seed nextTwitchAt if missing (back-compat for older saves)
+    if (!eggData.nextTwitchAt) {
+      const base = eggData.nextTwitchInterval || 2000;
+      eggData.nextTwitchAt = now + Math.round(base * (0.6 + Math.random() * 0.8));
+    }
+    
     // Calculate twitch interval (gets faster as hatching approaches)
     const eggItem = getItemById(eggData.eggItemId);
     const baseInterval = eggItem.eggData.twitchIntervalBase;
     const currentInterval = baseInterval * (0.3 + 0.7 * (1 - progress)); // 30% to 100% of base interval
     
-    // Check if it's time for a twitch
-    if (now - eggData.lastTwitchTime >= currentInterval) {
+    // Check if it's time for a twitch (independent schedule)
+    if (now >= eggData.nextTwitchAt) {
       playEggTwitch(parseInt(slotId));
       eggData.lastTwitchTime = now;
       eggData.nextTwitchInterval = currentInterval;
+      // Reschedule with random jitter so eggs don't sync
+      const jitter = 0.6 + Math.random() * 0.8; // 0.6x - 1.4x
+      eggData.nextTwitchAt = now + Math.round(currentInterval * jitter);
     }
   }
 }

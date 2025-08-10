@@ -564,7 +564,7 @@ h1 {
   width: max-content;
   padding: 6px 12px;
   border-radius: 14px;
-  border: 3px dashed #625A95;
+  border: 2px dashed #625A95;
   background: transparent;
   color: var(--text);
   font-weight: 700;
@@ -818,7 +818,7 @@ h1 {
 }
 
 /* Stack tags with tighter vertical gap */
-.pet-card .status-tags { display: grid !important; grid-auto-flow: row; gap: 4px; justify-items: end; }
+.pet-card .status-tags { display: grid !important; grid-auto-flow: row; gap: 1px; justify-items: end; }
 
 /* Compact tag padding for closer look */
 .pet-card .status-tag { padding: 4px 10px; }
@@ -1041,7 +1041,7 @@ h1 {
 
 /* Status tags as fill bars */
 .status-tags { display: grid; gap: 6px; }
-.status-tag { position: relative; height: 26px; border-radius: 999px; overflow: hidden; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); }
+.status-tag { position: relative; border-radius: 999px; overflow: hidden; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); }
 .status-tag .status-fill { position: absolute; inset: 0 auto 0 0; width: 0%; transition: width 200ms ease; background: var(--ok); opacity: 0.9; }
 .status-tag .status-label { position: relative; z-index: 1; display: block; width: 100%; text-align: center; font-weight: 700; font-size: 12px; color: var(--text); text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
 
@@ -1060,19 +1060,55 @@ h1 {
 .status-tag {
   box-sizing: border-box;
   width: 80px !important;
-  height: 26px !important;
+  height: 30px !important;
   padding: 0 !important;
   border-radius: 999px !important;
-  border: 6px dotted ##24193f !important;
+  border: 6px dotted #24193f !important;
   background: transparent !important;
   display: block !important;
   position: relative !important;
   overflow: hidden !important;
 }
-.status-tag .status-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-tag .status-label { 
+  white-space: nowrap; 
+  overflow: hidden; 
+  text-overflow: ellipsis;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--text);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  z-index: 1;
+}
 
 /* Uniform fill color for status bars */
 .status-tag .status-fill { background: #625A95 !important; opacity: 1; } 
 
-/* Vertically center status tag label */
-.status-tag .status-label { line-height: 26px !important; text-align: center; transform: translateY(-1px); } 
+/* Egg state sprite inside pet cards */
+.pet-card .pet-emoji.egg-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(2);
+  width: 70%;   /* base size; scale(2) => ~140% */
+  height: 70%;  /* base size; scale(2) => ~140% */
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  font-size: 0; /* kill any text metrics */
+} 
+
+/* Egg twitch animation */
+@keyframes egg-twitch {
+  0% { transform: translate(-50%, -50%) scale(2) rotate(0deg); }
+  20% { transform: translate(calc(-50% + 2px), calc(-50% - 1px)) scale(2) rotate(-3deg); }
+  40% { transform: translate(calc(-50% - 2px), calc(-50% + 1px)) scale(2) rotate(2deg); }
+  60% { transform: translate(calc(-50% + 1px), calc(-50% + 2px)) scale(2) rotate(-2deg); }
+  80% { transform: translate(calc(-50% - 1px), calc(-50% - 2px)) scale(2) rotate(3deg); }
+  100% { transform: translate(-50%, -50%) scale(2) rotate(0deg); }
+}
+.pet-card .pet-emoji.egg-state.egg-twitch { animation: egg-twitch 0.3s ease-in-out; } 
