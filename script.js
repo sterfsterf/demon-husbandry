@@ -411,6 +411,13 @@ function tick() {
   // bonus calm when needs are satisfied
   if (state.dirtiness <= 25 && state.hunger < 40) rageDelta -= 2; 
   
+  // gentle energy regeneration
+  const happyEnough = state.happiness >= 50;
+  const cleanEnough = state.dirtiness <= 40;
+  const fedEnough = state.hunger < 60;
+  const baseRegen = (happyEnough && cleanEnough && fedEnough) ? (d.energyRegenWhenHappy || 0.5) : (d.energyDecayOtherwise ? 0 : 0.2);
+  state.energy = clamp(state.energy + baseRegen);
+  
   adjustRage(rageDelta - 1);
   updateEggIncubation();
   startParticleEffects();
@@ -526,7 +533,11 @@ function onUseItem(itemId) {
 
 function applyItemEffects(item) { 
   const effects = item.effects || {}; 
-  let hunger = effects.hunger || 0; 
+  // Map legacy keys to new hunger scale (lower hunger is better)
+  let hunger = 0; 
+  if (typeof effects.hunger === 'number') hunger += effects.hunger;
+  if (typeof effects.fullness === 'number') hunger -= effects.fullness; // fullness -> reduce hunger
+  
   let cleanliness = effects.cleanliness || 0; 
   let energy = effects.energy || 0; 
   let happiness = effects.happiness || 0; 
@@ -549,8 +560,10 @@ function applyItemEffects(item) {
     adjustRage(-5); 
   } 
   
+  // Apply mapped deltas
   state.hunger = clamp(state.hunger + hunger); 
-  state.cleanliness = clamp(state.cleanliness + cleanliness); 
+  // cleanliness is the inverse of dirtiness in state
+  if (cleanliness !== 0) state.dirtiness = clamp(state.dirtiness - cleanliness);
   state.energy = clamp(state.energy + energy); 
   state.happiness = clamp(state.happiness + happiness); 
   if (rage !== 0) adjustRage(rage);
@@ -581,13 +594,24 @@ function renderStatusTags() {
   
   for (const status of statusData) {
     const tag = document.createElement('div');
-    tag.className = 'status-tag';
+    tag.className = `status-tag ${status.statName}`;
+    tag.setAttribute('data-stat', status.statName);
     tag.innerHTML = `
       <div class="status-fill" style="width: ${status.fillPercent}%"></div>
       <span class="status-label">${status.label}</span>
     `;
     el.statusTags.appendChild(tag);
   }
+  
+  // After render, measure the widest label and set a shared width
+  try {
+    const labels = el.statusTags.querySelectorAll('.status-label');
+    let maxWidth = 0;
+    labels.forEach((lbl) => { maxWidth = Math.max(maxWidth, Math.ceil(lbl.scrollWidth)); });
+    // Add padding allowance for aesthetics
+    const total = Math.max(120, maxWidth + 24);
+    el.statusTags.style.setProperty('--status-tag-width', `${total}px`);
+  } catch (_) {}
 }
 
 let particleIntervals = {};

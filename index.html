@@ -93,5 +93,23 @@
         </div>
       </div>
     </div>
+
+    <!-- Debug controls (top-right) -->
+    <button id="debugToggle" class="btn debug-toggle" title="Toggle Debug">Debug</button>
+    <div id="debugPanel" class="debug-panel hidden">
+      <div class="row">
+        <label for="debugItemSelect" class="muted">Item</label>
+        <select id="debugItemSelect"></select>
+      </div>
+      <div class="row">
+        <label for="debugItemQty" class="muted">Qty</label>
+        <input id="debugItemQty" type="number" min="1" value="1" />
+      </div>
+      <div class="row buttons">
+        <button id="debugAddBtn" class="btn">Add</button>
+        <button id="debugAdd5Btn" class="btn">+5</button>
+        <button id="debugGrantAllBtn" class="btn">All +5</button>
+      </div>
+    </div>
   </body>
 </html> 
