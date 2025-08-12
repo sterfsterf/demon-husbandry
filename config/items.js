@@ -17,6 +17,7 @@ export const ITEMS = [
     effects: { happiness: 14, energy: -10, cleanliness: -4 },
     defaultCount: 2,
     durability: { maxUses: 20, baseDamageChance: 0.22, rageThreshold: 55 },
+    // sprite: 'assets/items/fuzzy_ball.png', // optional if added later
   },
   {
     id: 'crystal_comb',
@@ -27,6 +28,7 @@ export const ITEMS = [
     effects: { cleanliness: 26, happiness: 4 },
     defaultCount: 4,
     durability: { maxUses: 30, baseDamageChance: 0.1, rageThreshold: 65 },
+    // sprite: 'assets/items/crystal_comb.png', // optional if added later
   },
   {
     id: 'sponge',
@@ -37,6 +39,7 @@ export const ITEMS = [
     effects: { cleanliness: 16, happiness: 2 },
     defaultCount: 2,
     durability: { maxUses: 8, baseDamageChance: 0.28, rageThreshold: 45 },
+    sprite: 'assets/pets/sponge.png',
   },
   {
     id: 'mysterious_egg',
@@ -51,6 +54,7 @@ export const ITEMS = [
       twitchIntervalBase: 2500
     },
     defaultCount: 0,
+    sprite: 'assets/pets/egg.png',
   },
 ];
 

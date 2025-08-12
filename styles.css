@@ -1094,23 +1094,23 @@ h1 {
   position: absolute;
   top: 50%;
   left: 50%;
-  transform: translate(-50%, -50%) scale(2);
-  width: 70%;   /* base size; scale(2) => ~140% */
-  height: 70%;  /* base size; scale(2) => ~140% */
+  transform: translate(-50%, -50%) scale(1); /* smaller than before */
+  width: 60%;
+  height: 60%;
   background-size: contain;
   background-repeat: no-repeat;
   background-position: center;
-  font-size: 0; /* kill any text metrics */
+  font-size: 0;
 } 
 
 /* Egg twitch animation */
 @keyframes egg-twitch {
-  0% { transform: translate(-50%, -50%) scale(2) rotate(0deg); }
-  20% { transform: translate(calc(-50% + 2px), calc(-50% - 1px)) scale(2) rotate(-3deg); }
-  40% { transform: translate(calc(-50% - 2px), calc(-50% + 1px)) scale(2) rotate(2deg); }
-  60% { transform: translate(calc(-50% + 1px), calc(-50% + 2px)) scale(2) rotate(-2deg); }
-  80% { transform: translate(calc(-50% - 1px), calc(-50% - 2px)) scale(2) rotate(3deg); }
-  100% { transform: translate(-50%, -50%) scale(2) rotate(0deg); }
+  0% { transform: translate(-50%, -50%) scale(1) rotate(0deg); }
+  20% { transform: translate(calc(-50% + 2px), calc(-50% - 1px)) scale(1.1) rotate(-3deg); }
+  40% { transform: translate(calc(-50% - 2px), calc(-50% + 1px)) scale(1.1) rotate(2deg); }
+  60% { transform: translate(calc(-50% + 1px), calc(-50% + 2px)) scale(1.1) rotate(-2deg); }
+  80% { transform: translate(calc(-50% - 1px), calc(-50% - 2px)) scale(1.1) rotate(3deg); }
+  100% { transform: translate(-50%, -50%) scale(1) rotate(0deg); }
 }
 .pet-card .pet-emoji.egg-state.egg-twitch { animation: egg-twitch 0.3s ease-in-out; } 
 
@@ -1119,11 +1119,11 @@ h1 {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 0px;
 }
 
 .breeding-btn {
-  padding: 6px 12px;
+  padding: 3px 12px;
   font-size: 12px;
   border-radius: 6px;
 }
@@ -1269,7 +1269,7 @@ html, body, #app, .layout { height: 100% !important; overflow: hidden !important
   padding: 8px 12px !important;
   box-sizing: border-box !important;
 }
-.inventory-header { margin: 0 0 6px !important; }
+.inventory-header { margin: 0 0 0px !important; }
 #inventoryGrid.inventory-grid { height: 100% !important; }
 .inventory-grid { 
   display: flex !important; 
@@ -1290,7 +1290,7 @@ html, body, #app, .layout { height: 100% !important; overflow: hidden !important
   box-sizing: border-box !important; 
 }
 .inventory-card .emoji { font-size: 28px !important; }
-.inventory-card .bar { margin-top: 4px !important; } 
+.inventory-card .bar { margin-top: 0px !important; } 
 
 #saveBtn, #resetBtn { display: none !important; } 
 
@@ -1416,23 +1416,36 @@ html, body, #app, .layout { height: 100% !important; overflow: hidden !important
   padding-top: 70px; /* was 90px: move content up 20px */
   text-align: center;
 }
-.inventory-card .top { display: none !important; }
+/* .inventory-card .top was hidden globally; re-enable for emoji fallback */
+.inventory-card .top { display: flex; align-items: center; justify-content: space-between; }
 .inventory-card .title, .inventory-card .muted, .inventory-card .use-btn { position: relative; z-index: 2; }
 .inventory-card .muted { margin-top: -8px; color: #6d6079; }
 .inventory-card .bar { margin-top: -8px; }
 .inventory-card .use-btn { margin-top: 8px; }
-.inventory-card::before {
-  content: '';
-  position: absolute;
-  left: 50%; top: -30px; /* moved up 40px (was 36px) */
-  transform: translate(-50%, 0) scale(1); /* was 0.8 */
-  width: 80%; height: 80%;
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: contain;
-  opacity: 0.95;
-}
+/* Disable CSS pseudo sprite; use JS .item-sprite-layer instead */
+.inventory-card::before { content: none !important; }
+
 /* Map known items to sprites */
-.inventory-card[data-item-id="sponge"]::before { background-image: url('assets/pets/sponge.png'); }
+/* .inventory-card[data-item-id="sponge"]::before { background-image: url('assets/pets/sponge.png'); } */
 /* fallback: show big emoji if no sprite */
 .inventory-card .emoji { font-size: 48px !important; display: block !important; text-align: center; } 
+
+/* JS sprite layer should not block dragging */
+.item-sprite-layer { pointer-events: none !important; } 
+
+/* Count badge for sprite-based inventory cards */
+.inventory-card .item-count-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.5);
+  border: 1px solid rgba(255,255,255,0.25);
+  color: #e7ecf3;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  z-index: 3;
+  pointer-events: none;
+} 

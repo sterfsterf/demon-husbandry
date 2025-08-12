@@ -607,31 +607,27 @@ function renderInventory() {
     const card = document.createElement('div'); 
     card.className = 'inventory-card'; 
     card.setAttribute('data-item-id', it.id); 
+    card.setAttribute('data-count', String(count));
     
     // Calculate what to show in the bar
     let barPercent = 0;
     let showBar = false;
     
     if (it.durability && count > 0) {
-      // Durable items: show remaining durability
       const durabilityMap = state.itemDurability?.[it.id] || {};
       let currentUses = 0;
-      
-      // Find instance with highest uses (the "top" item being damaged)
       for (const [instanceId, uses] of Object.entries(durabilityMap)) {
         if (uses < it.durability.maxUses && uses > currentUses) {
           currentUses = uses;
         }
       }
-      
-      // Bar shows remaining durability (full = not broken)
       const remainingUses = it.durability.maxUses - currentUses;
       barPercent = (remainingUses / it.durability.maxUses) * 100;
       showBar = true;
     }
     
     card.innerHTML = `
-      <div class="top">
+      <div class="top" ${it.sprite ? 'style="display:none"' : ''}>
         <span class="emoji">${it.emoji}</span>
         <span class="count">x${count}</span>
       </div>
@@ -641,12 +637,69 @@ function renderInventory() {
       <button class="btn use-btn" ${count <= 0 ? 'disabled' : ''}>Use</button>
     `; 
     
+    // Drag setup helper
+    const bindDrag = (el) => {
+      if (!el) return;
+      el.setAttribute('draggable', String(count > 0));
+      if (count > 0) {
+        el.addEventListener('dragstart', (ev) => {
+          try {
+            ev.dataTransfer.setData('text/plain', it.id);
+            ev.dataTransfer.effectAllowed = 'copy';
+          } catch (_) {}
+        });
+      }
+    };
+    
+    // Add sprite layer if provided, else keep big emoji in .top
+    if (it.sprite) {
+      const layer = document.createElement('div');
+      layer.className = 'item-sprite-layer';
+      layer.style.position = 'absolute';
+      layer.style.left = '50%';
+      layer.style.top = '-20px';
+      layer.style.transform = 'translate(-50%, 0) scale(0.6)';
+      layer.style.width = '80%';
+      layer.style.height = '80%';
+      layer.style.backgroundImage = `url('${it.sprite}')`;
+      layer.style.backgroundRepeat = 'no-repeat';
+      layer.style.backgroundPosition = 'center';
+      layer.style.backgroundSize = 'contain';
+      layer.style.opacity = '0.95';
+      layer.style.pointerEvents = 'none';
+      card.appendChild(layer);
+      // Add count badge in top-right
+      const badge = document.createElement('div');
+      badge.className = 'item-count-badge';
+      badge.textContent = `x${count}`;
+      card.appendChild(badge);
+      // Create a transparent drag handle over the sprite to initiate drag
+      const handle = document.createElement('div');
+      handle.style.position = 'absolute';
+      handle.style.left = '50%';
+      handle.style.top = '-20px';
+      handle.style.transform = 'translate(-50%, 0)';
+      handle.style.width = '80%';
+      handle.style.height = '80%';
+      handle.style.background = 'transparent';
+      bindDrag(handle);
+      card.appendChild(handle);
+    } else {
+      // Emphasize emoji fallback and bind drag on the top row
+      const emojiEl = card.querySelector('.top .emoji');
+      if (emojiEl) emojiEl.style.fontSize = '48px';
+      bindDrag(card.querySelector('.top'));
+    }
+    // Also bind drag on the card as a fallback
+    bindDrag(card);
+    
     const useBtn = card.querySelector('.use-btn'); 
     useBtn.addEventListener('click', () => onUseItem(it.id)); 
     el.inventoryGrid.appendChild(card); 
   } 
   enableDragAndDrop(); 
 }
+
 function onUseItem(itemId, targetPetSlot = 0) { 
   const item = getItemById(itemId) || state.breedingEggs?.[itemId];
   if (!item) return; 
@@ -1074,7 +1127,7 @@ function renderAllPets() {
         emojiEl.style.display = 'block';
       }
       if (imageEl) { imageEl.classList.remove('show'); }
-      if (nameEl) { nameEl.textContent = petData.name || 'Incubating'; nameEl.style.display = 'block'; }
+      if (nameEl) { nameEl.textContent = ''; nameEl.style.display = 'none'; }
       if (heartsEl) { heartsEl.innerHTML = ''; }
       if (statusEl) { statusEl.innerHTML = ''; }
       miniWrap.innerHTML = '';
@@ -1202,7 +1255,9 @@ function enableDragAndDrop() {
   // assign draggable and dragstart per card after render
   for (const card of el.inventoryGrid.querySelectorAll('.inventory-card')) {
     const itemId = card.getAttribute('data-item-id');
-    const count = Number((card.querySelector('.count')?.textContent || '0').replace(/\D/g, ''));
+    const countAttr = card.getAttribute('data-count');
+    const parsedCount = countAttr != null ? Number(countAttr) : Number((card.querySelector('.count')?.textContent || '0').replace(/\D/g, ''));
+    const count = isNaN(parsedCount) ? 0 : parsedCount;
     const canDrag = count > 0;
     card.style.pointerEvents = 'auto';
     if (canDrag) {
@@ -1223,7 +1278,7 @@ function enableDragAndDrop() {
           ctx.globalAlpha = 0.2;
           ctx.fillRect(0,0,32,32);
           try { ev.dataTransfer.setDragImage(img, 16, 16); } catch (_) {}
-        }, { passive: true });
+        });
         card.__dragBound = true;
       }
     } else {
