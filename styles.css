@@ -564,7 +564,7 @@ h1 {
   width: max-content;
   padding: 6px 12px;
   border-radius: 14px;
-  border: 2px dashed #625A95;
+  border: 1px dotted #361ddd;
   background: transparent;
   color: var(--text);
   font-weight: 700;
@@ -1047,10 +1047,11 @@ h1 {
 .status-tag .status-label { position: relative; z-index: 1; display: block; width: 100%; text-align: center; font-weight: 700; font-size: 12px; color: var(--text); text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
 
 /* Per-stat colors */
-.status-tag.hunger .status-fill { background: var(--bar-fullness); }
-.status-tag.dirtiness .status-fill { background: var(--bar-cleanliness); }
-.status-tag.energy .status-fill { background: var(--bar-energy); }
-.status-tag.rage .status-fill { background: var(--bar-rage); } 
+/* Disabled per-stat tints to keep uniform fill */
+/* .status-tag.hunger .status-fill { background: var(--bar-fullness); } */
+/* .status-tag.dirtiness .status-fill { background: var(--bar-cleanliness); } */
+/* .status-tag.energy .status-fill { background: var(--bar-energy); } */
+/* .status-tag.rage .status-fill { background: var(--bar-rage); } */
 
 /* Uniform, fixed width for status tags */
 .status-tag { width: 80px; }
@@ -1061,10 +1062,14 @@ h1 {
 .status-tag {
   box-sizing: border-box;
   width: 80px !important;
-  height: 30px !important;
+  height: 28px !important;
   padding: 0 !important;
   border-radius: 999px !important;
-  border: 6px dotted #24193f !important;
+  /* use width/style here, color set later in consolidated block */
+  border-width: 3px !important;
+  border-style: dotted !important;
+  border-color: #37285e !important; /* tweak this */
+  /* border: 6px dotted #24193f !important; */
   background: transparent !important;
   display: block !important;
   position: relative !important;
@@ -1448,4 +1453,76 @@ html, body, #app, .layout { height: 100% !important; overflow: hidden !important
   line-height: 1;
   z-index: 3;
   pointer-events: none;
+} 
+
+/* Consolidated status tags — single source of truth */
+.pet-card .status-tags {
+  position: absolute !important;
+  right: 10px !important;
+  bottom: 10px !important; /* tweak here */
+  display: grid !important;
+  gap: 4px !important;
+  justify-items: end !important;
+}
+.status-tag {
+  position: relative !important;
+  box-sizing: border-box !important;
+  width: 80px !important;
+  height: 26px !important;
+  border-radius: 999px !important;
+  overflow: hidden !important;
+  background: transparent !important;
+  border-color: #322949 !important;
+  border-width: 1px;
+}
+.status-tag .status-fill {
+  position: absolute !important;
+  inset: 0 auto 0 0 !important;
+  max-width: 80px !important;
+  background: #625A95 !important;
+  opacity: 1 !important;
+  transition: width 200ms ease !important;
+}
+.status-tag .status-label {
+  position: relative !important;
+  z-index: 1 !important;
+  display: block !important;
+  width: 100% !important;
+  line-height: 26px !important;
+  text-align: center !important;
+  color: var(--text) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+/* Optional per-stat tint (disabled for uniform fill) */
+/* .status-tag.hunger .status-fill { background: var(--bar-fullness) !important; } */
+/* .status-tag.dirtiness .status-fill { background: var(--bar-cleanliness) !important; } */
+/* .status-tag.energy .status-fill { background: var(--bar-energy) !important; } */
+/* .status-tag.rage .status-fill { background: var(--bar-rage) !important; } */ 
+
+/* Status tag flash overlay for decrease effect */
+.status-tag { position: relative; }
+.status-tag .status-flash {
+  position: absolute;
+  top: 0; bottom: 0;
+  background: linear-gradient(180deg, rgba(255,170,0,0.95), rgba(255,120,0,0.9));
+  opacity: 0.9;
+  pointer-events: none;
+  z-index: 2;
+  animation: durability-flash-fade 260ms ease-out forwards;
+} 
+
+/* Purple spark particles for status decreases */
+.status-tag .status-spark {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #d2c2ff 0%, #b089ff 60%, #6d5bd1 100%);
+  opacity: 0.95;
+  pointer-events: none;
+  filter: drop-shadow(0 0 4px rgba(176,137,255,0.8));
+  animation: spark-fly 320ms ease-out forwards;
+  z-index: 3;
 } 

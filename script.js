@@ -713,6 +713,9 @@ function onUseItem(itemId, targetPetSlot = 0) {
     return;
   }
   
+  // Snapshot prev values for flash/lerp
+  const prevStats = collectStatusValues(targetPet);
+  
   // For items without durability, just reduce count
   if (!item.durability) {
     if (USE_STORE && store) {
@@ -750,7 +753,9 @@ function onUseItem(itemId, targetPetSlot = 0) {
     // Fallback imperative path
     state.inventory[itemId] = count - 1; 
     applyItemEffects(item, targetPet); 
-    render(); 
+    const nextStats = collectStatusValues(targetPet);
+    render();
+    animateStatusDecreasesForSlot(targetPetSlot, prevStats, nextStats);
     save(); 
     return;
   }
@@ -799,6 +804,9 @@ function onUseItem(itemId, targetPetSlot = 0) {
   }
   
   applyItemEffects(item, targetPet);
+  const nextStats = collectStatusValues(targetPet);
+  render();
+  animateStatusDecreasesForSlot(targetPetSlot, prevStats, nextStats);
   
   // Roll for damage using target pet's stats
   const damageChance = calculateItemDamageChance(item, targetPet);
@@ -831,6 +839,72 @@ function onUseItem(itemId, targetPetSlot = 0) {
   
   save(); 
   startParticleEffects(); // Update particles immediately after stat changes
+}
+
+function collectStatusValues(pet) {
+  return {
+    hunger: clamp(pet?.hunger ?? 0),
+    dirtiness: clamp(pet?.dirtiness ?? 0),
+    energy: clamp(pet?.energy ?? 0),
+    rage: clamp(pet?.rage ?? 0),
+  };
+}
+
+function animateStatusDecreasesForSlot(slotId, prev, next) {
+  try {
+    const stats = ['hunger','dirtiness','energy','rage'];
+    for (const stat of stats) {
+      const before = Math.max(0, Math.min(100, Number(prev[stat] ?? 0)));
+      const after = Math.max(0, Math.min(100, Number(next[stat] ?? 0)));
+      if (after < before) flashStatusDecrease(slotId, stat, before, after);
+    }
+  } catch (_) {}
+}
+
+function flashStatusDecrease(slotId, statName, prevPct, nextPct) {
+  try {
+    const card = document.querySelector(`.pet-card[data-pet-slot="${slotId}"]`);
+    if (!card) return;
+    const tag = card.querySelector(`.status-tag[data-stat="${statName}"]`);
+    if (!tag) return;
+    const fill = tag.querySelector('.status-fill');
+    if (!fill) return;
+
+    // Temporarily set back to previous width then animate to next
+    const existingTransition = fill.style.transition;
+    fill.style.transition = 'none';
+    fill.style.width = `${prevPct}%`;
+    // Force reflow
+    void fill.offsetWidth;
+    fill.style.transition = existingTransition || 'width 200ms ease';
+    setTimeout(() => { fill.style.width = `${nextPct}%`; }, 20);
+
+    // Add flash overlay over the portion being lost
+    const loss = Math.max(0, prevPct - nextPct);
+    const flash = document.createElement('div');
+    flash.className = 'status-flash';
+    flash.style.right = `${Math.max(0, 100 - prevPct)}%`;
+    flash.style.width = `${loss}%`;
+    tag.appendChild(flash);
+    setTimeout(() => flash.remove(), 300);
+
+    // Spawn purple sparks near end of bar
+    const tagRect = tag.getBoundingClientRect();
+    const endX = tagRect.left + (prevPct / 100) * tagRect.width;
+    const endY = tagRect.top + tagRect.height / 2;
+    for (let i = 0; i < 4; i++) {
+      const s = document.createElement('div');
+      s.className = 'status-spark';
+      s.style.left = `${endX - tagRect.left}px`;
+      s.style.top = `${endY - tagRect.top}px`;
+      const dx = (Math.random() - 0.5) * 14;
+      const dy = -8 - Math.random() * 10;
+      s.style.setProperty('--dx', `${dx}px`);
+      s.style.setProperty('--dy', `${dy}px`);
+      tag.appendChild(s);
+      setTimeout(() => s.remove(), 380);
+    }
+  } catch (_) {}
 }
 
 function applyItemEffects(item, targetPet = null) { 
@@ -925,12 +999,11 @@ function renderStatusTags() {
   } catch (_) {}
 }
 
-let particleIntervals = {};
+// Per-slot particle intervals
+let particleIntervals = {}; // { [slotId]: { rage, sweat, sparkle } }
 
-// Compute the visual center of the sprite within the particle container, offset up 20px
-function getSpriteCenterOffset() {
-  const container = document.getElementById('petParticles');
-  const img = el.petImage;
+// Compute the visual center of a given sprite within its particle container, offset up a bit
+function getSpriteCenterOffsetFor(container, img) {
   if (!container) return { x: 0, y: 0 };
   const cr = container.getBoundingClientRect();
   if (!img) return { x: cr.width / 2, y: Math.max(0, cr.height / 2 - 40) };
@@ -940,142 +1013,98 @@ function getSpriteCenterOffset() {
   return { x: centerX, y: centerY };
 }
 
-// Particle effects now derive from main pet (slot 0) and use dirtiness correctly
-function startParticleEffects() {
-  stopParticleEffects(); // Clear existing intervals
-  
-  const mainPet = state.pets?.[0] || state;
-  const dirtiness = mainPet.dirtiness || 0;
-  const cleanliness = clamp(100 - dirtiness); // derive cleanliness from dirtiness
-  const rage = mainPet.rage || 0;
-  
-  // Rage particles (when furious)
-  if (rage >= 90) {
-    particleIntervals.rage = setInterval(() => createRageParticle(), 150);
-  }
-  
-  // Cleanliness particles (can run alongside rage particles)
-  if (cleanliness <= 15) {
-    particleIntervals.sweat = setInterval(() => createSweatParticle(), 400);
-  } else if (cleanliness <= 30) {
-    particleIntervals.sweat = setInterval(() => createSweatParticle(), 1200);
-  } else if (cleanliness >= 85) {
-    particleIntervals.sparkle = setInterval(() => createSparkleParticle(), 800);
-  }
-}
-
-function stopParticleEffects() {
-  Object.values(particleIntervals).forEach(interval => clearInterval(interval));
-  particleIntervals = {};
-}
-
-function createSweatParticle() {
-  const container = document.getElementById('petParticles');
-  console.log('Creating sweat particle, container found:', !!container);
+function createSweatParticleIn(container, img, petData, filthy) {
   if (!container) return;
-  
-  const origin = getSpriteCenterOffset();
-  
+  const origin = getSpriteCenterOffsetFor(container, img);
   const particle = document.createElement('div');
-  const isFilthy = (state.cleanliness || 0) <= 15;
-  particle.className = isFilthy ? 'sweat-particle animate chaotic' : 'sweat-particle animate';
-  
-  // Emit from sprite center with a tiny jitter
+  particle.className = filthy ? 'sweat-particle animate chaotic' : 'sweat-particle animate';
   const jitterX = (Math.random() - 0.5) * 12;
   const jitterY = (Math.random() - 0.5) * 8;
   particle.style.left = `${origin.x + jitterX}px`;
   particle.style.top = `${origin.y + jitterY}px`;
-  
-  // Set random direction and rotation for outward emission
-  const angle = Math.random() * Math.PI * 2; // Random angle in radians
-  const distance = Math.random() * 30 + 15; // Random distance 15-45px
+  const angle = Math.random() * Math.PI * 2;
+  const distance = Math.random() * 30 + 15;
   const sweatX = Math.cos(angle) * distance;
-  const sweatY = Math.sin(angle) * distance * 0.7; // Slightly less vertical spread
-  const rotation = (Math.random() - 0.5) * 180; // Random rotation -90 to 90 degrees
-  
+  const sweatY = Math.sin(angle) * distance * 0.7;
+  const rotation = (Math.random() - 0.5) * 180;
   particle.style.setProperty('--sweat-x', `${sweatX}px`);
   particle.style.setProperty('--sweat-y', `${sweatY}px`);
   particle.style.setProperty('--sweat-rotation', `${rotation}deg`);
-  
   container.appendChild(particle);
-  console.log('Sweat particle added to container');
-  
-  // Remove particle after animation (match animation duration)
-  const duration = isFilthy ? 700 : 1200;
-  setTimeout(() => {
-    if (particle.parentNode) {
-      particle.parentNode.removeChild(particle);
-    }
-  }, duration);
+  const duration = filthy ? 700 : 1200;
+  setTimeout(() => { if (particle.parentNode) particle.parentNode.remove(); }, duration);
 }
 
-function createSparkleParticle() {
-  const container = document.getElementById('petParticles');
-  console.log('Creating sparkle particle, container found:', !!container);
+function createSparkleParticleIn(container, img) {
   if (!container) return;
-  
-  const origin = getSpriteCenterOffset();
-  
+  const origin = getSpriteCenterOffsetFor(container, img);
   const particle = document.createElement('div');
   particle.className = 'sparkle-particle animate';
-  
-  // Start near sprite center with tiny jitter
   const jitterX = (Math.random() - 0.5) * 10;
   const jitterY = (Math.random() - 0.5) * 6;
   particle.style.left = `${origin.x + jitterX}px`;
   particle.style.top = `${origin.y + jitterY}px`;
-  
   container.appendChild(particle);
-  console.log('Sparkle particle added to container');
-  
-  // Remove particle after animation (shorter duration)
-  setTimeout(() => {
-    if (particle.parentNode) {
-      particle.parentNode.removeChild(particle);
-    }
-  }, 1000);
+  setTimeout(() => { if (particle.parentNode) particle.parentNode.remove(); }, 1000);
 }
 
-function createRageParticle() {
-  const container = document.getElementById('petParticles');
-  console.log('Creating rage particle, container found:', !!container);
+function createRageParticleIn(container, img) {
   if (!container) return;
-  
-  const origin = getSpriteCenterOffset();
-  
+  const origin = getSpriteCenterOffsetFor(container, img);
   const particle = document.createElement('div');
   particle.className = 'rage-particle animate';
-  
-  // Emit from center with tiny jitter
   const jitterX = (Math.random() - 0.5) * 10;
   const jitterY = (Math.random() - 0.5) * 6;
   particle.style.left = `${origin.x + jitterX}px`;
   particle.style.top = `${origin.y + jitterY}px`;
-  
-  // Add size variation for more chaos
-  const sizeMultiplier = 0.8 + Math.random() * 0.6; // 0.8x to 1.4x size
+  const sizeMultiplier = 0.8 + Math.random() * 0.6;
   particle.style.transform = `scale(${sizeMultiplier})`;
-  
-  // Set random direction and rotation for explosive outward emission
-  const angle = Math.random() * Math.PI * 2; // Random angle in radians
-  const distance = Math.random() * 60 + 30; // Random distance 30-90px (much more explosive)
+  const angle = Math.random() * Math.PI * 2;
+  const distance = Math.random() * 60 + 30;
   const rageX = Math.cos(angle) * distance;
-  const rageY = Math.sin(angle) * distance * 0.6; // Less vertical spread
-  const rotation = (Math.random() - 0.5) * 300; // Even more rotation range for chaos
-  
+  const rageY = Math.sin(angle) * distance * 0.6;
+  const rotation = (Math.random() - 0.5) * 300;
   particle.style.setProperty('--rage-x', `${rageX}px`);
   particle.style.setProperty('--rage-y', `${rageY}px`);
   particle.style.setProperty('--rage-rotation', `${rotation}deg`);
-  
   container.appendChild(particle);
-  console.log('Rage particle added to container');
-  
-  // Remove particle after animation
-  setTimeout(() => {
-    if (particle.parentNode) {
-      particle.parentNode.removeChild(particle);
+  setTimeout(() => { if (particle.parentNode) particle.parentNode.remove(); }, 600);
+}
+
+function stopParticleEffects() {
+  // Clear all per-slot timers
+  Object.values(particleIntervals).forEach(map => {
+    if (!map) return;
+    Object.values(map).forEach(t => clearInterval(t));
+  });
+  particleIntervals = {};
+}
+
+function startParticleEffects() {
+  stopParticleEffects();
+  const petCards = document.querySelectorAll('.pet-card[data-pet-slot]');
+  petCards.forEach(card => {
+    const slot = Number(card.getAttribute('data-pet-slot'));
+    const pet = state.pets?.[slot];
+    if (!pet || pet.type !== 'pet') return;
+    const container = card.querySelector('.pet-particles');
+    const img = card.querySelector('.pet-image');
+    const intervals = {};
+    const dirtiness = pet.dirtiness || 0;
+    const cleanliness = 100 - dirtiness;
+    const rage = pet.rage || 0;
+    if (rage >= 90) {
+      intervals.rage = setInterval(() => createRageParticleIn(container, img), 150);
     }
-  }, 600);
+    if (cleanliness <= 15) {
+      intervals.sweat = setInterval(() => createSweatParticleIn(container, img, pet, true), 400);
+    } else if (cleanliness <= 30) {
+      intervals.sweat = setInterval(() => createSweatParticleIn(container, img, pet, false), 1200);
+    } else if (cleanliness >= 85) {
+      intervals.sparkle = setInterval(() => createSparkleParticleIn(container, img), 800);
+    }
+    particleIntervals[slot] = intervals;
+  });
 }
 
 function renderAllPets() {
